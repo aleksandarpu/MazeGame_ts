@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",                          /* Specify ECMAScript target version */
+    "lib": ["ES2022", "DOM", "ESNext.Temporal"], /* Include Temporal type declarations used by Firebase */
+    "module": "ESNext",                        /* Specify module code generation */
+    "moduleResolution": "Bundler",
+    "rootDir": "./src",                          /* Specify the root folder of input files */
+    "outDir": "./dist",                          /* Specify the output folder for all emitted files */   
+    "types": ["node"],                             /* Enable Node.js module typings */
+    "strict": true,                              /* Enable all strict type-checking options */
+    "esModuleInterop": true                      /* Emit additional JavaScript to ease support for importing CommonJS modules */
+  }
+}

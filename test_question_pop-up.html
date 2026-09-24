@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Question Pop-up Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #2c3e50;
+            color: #fff;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 50px;
+        }
+        /* Simulated canvas wrapper */
+        #game-container {
+            width: 800px;
+            height: 600px;
+            background-color: #ecf0f1;
+            position: relative;
+            border: 4px solid #34495e;
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .trigger-btn {
+            padding: 15px 30px;
+            font-size: 20px;
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .trigger-btn:hover {
+            background-color: #2ecc71;
+        }
+        #result-log {
+            margin-top: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            height: 30px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Maze Game: Question Pop-up Engine</h2>
+    
+    <div id="game-container">
+        <button class="trigger-btn" id="start-btn">Step on Flag (Trigger Pop-up)</button>
+    </div>
+
+    <div id="result-log"></div>
+
+    <script>
+        // Core function adapted from the TypeScript implementation
+        function createQuestionPopup(container, timeLimitSeconds = 30, onResolve) {
+            const mockup = {
+                questionText: "The name of <i>Capitol</i> city is",
+                answers: ["Washington D.C.", "New York", "Los Angeles", "Chicago"],
+                correctIndex: 0,
+            };
+
+            const overlay = document.createElement("div");
+            overlay.id = "question-popup-overlay";
+            Object.assign(overlay.style, {
+                position: "absolute",
+                top: "0", left: "0", width: "100%", height: "100%",
+                backgroundColor: "rgba(0, 0, 0, 0.7)",
+                display: "flex", justifyContent: "center", alignItems: "center",
+                fontFamily: "Arial, sans-serif", zIndex: "1000",
+                color: "#000"
+            });
+
+            const modal = document.createElement("div");
+            Object.assign(modal.style, {
+                position: "relative",
+                backgroundColor: "#fff",
+                padding: "30px",
+                borderRadius: "10px",
+                border: "4px solid #333",
+                width: "400px",
+                boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+                textAlign: "center",
+            });
+
+            const timerEl = document.createElement("div");
+            Object.assign(timerEl.style, {
+                position: "absolute",
+                top: "10px", right: "15px",
+                fontSize: "20px", fontWeight: "bold",
+                color: "green",
+            });
+            timerEl.innerText = timeLimitSeconds;
+
+            const questionEl = document.createElement("div");
+            Object.assign(questionEl.style, {
+                fontSize: "22px", fontWeight: "bold",
+                marginBottom: "20px", paddingBottom: "20px",
+                borderBottom: "2px solid #ccc",
+            });
+            
+            // Format red text
+            const formattedText = mockup.questionText.replace(/<i>(.*?)<\/i>/g, '<span style="color: red;">$1</span>');
+            questionEl.innerHTML = formattedText;
+
+            const answersContainer = document.createElement("div");
+            Object.assign(answersContainer.style, {
+                display: "flex", flexDirection: "column", gap: "10px",
+            });
+
+            let timerInterval;
+            
+            const closePopup = (isCorrect, isTimeout = false) => {
+                clearInterval(timerInterval);
+                window.removeEventListener("keydown", keydownHandler);
+                container.removeChild(overlay);
+                
+                const styleTag = document.getElementById("answer-hover-styles");
+                if (styleTag) styleTag.remove();
+                
+                onResolve(isCorrect, isTimeout);
+            };
+
+            // Inject CSS for hover effects dynamically
+            if (!document.getElementById("answer-hover-styles")) {
+                const style = document.createElement("style");
+                style.id = "answer-hover-styles";
+                style.innerHTML = `
+                  .answer-btn {
+                    background-color: #f0f0f0; border: 2px solid #ddd;
+                    padding: 12px; border-radius: 5px; font-size: 18px;
+                    cursor: pointer; transition: all 0.2s ease;
+                    color: #333; font-weight: bold;
+                  }
+                  .answer-btn:hover {
+                    background-color: #3498db; color: white; border-color: #2980b9;
+                  }
+                `;
+                document.head.appendChild(style);
+            }
+
+            // Map and shuffle answers
+            const shuffledAnswers = mockup.answers
+                .map((text, index) => ({ text, isCorrect: index === mockup.correctIndex }))
+                .sort(() => Math.random() - 0.5);
+
+            shuffledAnswers.forEach((ans, index) => {
+                const btn = document.createElement("button");
+                btn.className = "answer-btn";
+                btn.innerText = `${index + 1}. ${ans.text}`;
+                btn.onclick = () => closePopup(ans.isCorrect);
+                answersContainer.appendChild(btn);
+            });
+
+            modal.appendChild(timerEl);
+            modal.appendChild(questionEl);
+            modal.appendChild(answersContainer);
+            overlay.appendChild(modal);
+            container.appendChild(overlay);
+
+            // Timer Logic
+            let timeLeft = timeLimitSeconds;
+            timerInterval = window.setInterval(() => {
+                timeLeft--;
+                timerEl.innerText = timeLeft;
+                
+                if (timeLeft <= 10) timerEl.style.color = "red";
+                if (timeLeft <= 0) closePopup(false, true);
+            }, 1000);
+
+            // Keyboard input handling
+            const keydownHandler = (e) => {
+                const keyNum = parseInt(e.key);
+                if (keyNum >= 1 && keyNum <= 4 && keyNum <= shuffledAnswers.length) {
+                    closePopup(shuffledAnswers[keyNum - 1].isCorrect);
+                }
+            };
+            window.addEventListener("keydown", keydownHandler);
+        }
+
+        // Test Harness Integration
+        const gameContainer = document.getElementById("game-container");
+        const startBtn = document.getElementById("start-btn");
+        const resultLog = document.getElementById("result-log");
+
+        startBtn.addEventListener("click", () => {
+            resultLog.innerText = ""; // Clear old results
+            resultLog.style.color = "#fff";
+            
+            // Pass 30 seconds as the test parameter
+            createQuestionPopup(gameContainer, 30, (isCorrect, isTimeout) => {
+                if (isTimeout) {
+                    resultLog.innerText = "Result: TIMEOUT! (Treated as wrong answer)";
+                    resultLog.style.color = "#e74c3c";
+                } else if (isCorrect) {
+                    resultLog.innerText = "Result: CORRECT! (+2 Points, +3 Steps)";
+                    resultLog.style.color = "#2ecc71";
+                } else {
+                    resultLog.innerText = "Result: WRONG! (Lose remaining steps)";
+                    resultLog.style.color = "#e74c3c";
+                }
+            });
+        });
+    </script>
+</body>
+</html>

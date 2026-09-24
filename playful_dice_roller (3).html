@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kids Style Dice Roller</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
+        
+        body {
+            font-family: 'Fredoka One', cursive, sans-serif;
+            background-color: #f0f9ff;
+            background-image: radial-gradient(#bae6fd 2px, transparent 2px);
+            background-size: 30px 30px;
+        }
+
+        .modal-enter {
+            animation: bounceIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        .modal-exit {
+            animation: fadeOut 0.3s ease-in forwards;
+        }
+
+        @keyframes bounceIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            80% { transform: scale(1.05); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes fadeOut {
+            to { transform: scale(0.9); opacity: 0; }
+        }
+
+        body.modal-open {
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="text-center z-10 bg-white p-8 rounded-3xl shadow-xl border-4 border-blue-400">
+        <h1 class="text-4xl text-blue-500 mb-6 drop-shadow-md">Playful Dice!</h1>
+        <p class="text-gray-500 mb-8 font-sans font-bold">Ready for some fun?</p>
+        <button id="openModalBtn" class="bg-amber-400 hover:bg-amber-500 text-white text-2xl py-4 px-8 rounded-full shadow-[0_6px_0_#b45309] hover:translate-y-1 transition-all active:shadow-none active:translate-y-2 border-4 border-amber-600">
+            Open Dice
+        </button>
+    </div>
+
+    <div id="modalOverlay" class="fixed inset-0 bg-sky-900/60 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div id="modalContent" class="bg-white rounded-[40px] shadow-2xl p-6 relative border-8 border-sky-300 w-full max-w-md mx-4 transform scale-0 flex flex-col items-center">
+            <button id="closeModalBtn" class="absolute -top-4 -right-4 bg-red-500 hover:bg-red-600 text-white w-12 h-12 rounded-full font-bold text-xl shadow-[0_4px_0_#991b1b] border-4 border-red-700 flex items-center justify-center transition-transform hover:scale-110 active:scale-95 z-10">
+                X
+            </button>
+            
+            <h2 class="text-2xl text-center text-sky-500 mb-2">Click or Press Space!</h2>
+            <p id="resultText" class="text-center text-amber-500 text-xl h-8 mb-4">Roll the dice to see!</p>
+            
+            <div class="relative w-full aspect-square bg-sky-50 rounded-3xl overflow-hidden border-4 border-dashed border-sky-200 cursor-pointer shadow-inner" id="canvasContainer">
+                <canvas id="diceCanvas" class="absolute inset-0 w-full h-full block"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const openModalBtn = document.getElementById('openModalBtn');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalOverlay = document.getElementById('modalOverlay');
+        const modalContent = document.getElementById('modalContent');
+        const resultText = document.getElementById('resultText');
+        const canvas = document.getElementById('diceCanvas');
+        const ctx = canvas.getContext('2d');
+        const canvasContainer = document.getElementById('canvasContainer');
+
+        // ---------- Canvas sizing ----------
+        let canvasW = 0, canvasH = 0;
+
+        function resizeCanvas() {
+            canvasW = canvasContainer.clientWidth;
+            canvasH = canvasContainer.clientHeight;
+            if (!canvasW || !canvasH) return;
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = Math.round(canvasW * dpr);
+            canvas.height = Math.round(canvasH * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            draw();
+        }
+        new ResizeObserver(resizeCanvas).observe(canvasContainer);
+        window.addEventListener('resize', resizeCanvas);
+
+        // ---------- Colors ----------
+        const COLORS = {
+            body: [255, 71, 87],
+            pip: [255, 255, 255],
+            confetti: ['#ff4757', '#ffa502', '#2ed573', '#1e90ff', '#ff6348', '#eccc68']
+        };
+
+        // ---------- World settings (1 unit = the smaller canvas side) ----------
+        const HALF = 0.11;            // half the edge length of the cube
+        const BOUND_X = 0.37;         // table walls
+        const BOUND_Y = 0.31;
+        const GRAVITY = 12;
+        const TILT = 0.38;            // camera tilt (radians)
+        const COS_T = Math.cos(TILT), SIN_T = Math.sin(TILT);
+        const CAM_D = 2.6;            // camera distance (perspective strength)
+        const CAM_POS = [0, CAM_D * SIN_T, CAM_D * COS_T];
+        const LIGHT = normalize([-0.45, -0.55, 1]);
+        const SHADOW_DIR = [0.3, 0.35, -1]; // direction light travels (z = -1)
+
+        // ---------- Vector / quaternion helpers ----------
+        function normalize(v) { const l = Math.hypot(...v) || 1; return v.map(c => c / l); }
+        function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+        function cross(a, b) { return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+        function randUnit() {
+            const z = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = Math.sqrt(1 - z*z);
+            return [r * Math.cos(a), r * Math.sin(a), z];
+        }
+
+        // Quaternions as [w, x, y, z]
+        function qMul(a, b) {
+            return [
+                a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3],
+                a[0]*b[1] + a[1]*b[0] + a[2]*b[3] - a[3]*b[2],
+                a[0]*b[2] - a[1]*b[3] + a[2]*b[0] + a[3]*b[1],
+                a[0]*b[3] + a[1]*b[2] - a[2]*b[1] + a[3]*b[0]
+            ];
+        }
+        function qNorm(q) { const l = Math.hypot(...q) || 1; return q.map(c => c / l); }
+        function qAxisAngle(axis, angle) {
+            const s = Math.sin(angle / 2);
+            return [Math.cos(angle / 2), axis[0]*s, axis[1]*s, axis[2]*s];
+        }
+        function qFromTo(a, b) {
+            const d = dot(a, b);
+            if (d < -0.9999) return [0, 1, 0, 0];
+            const c = cross(a, b);
+            return qNorm([1 + d, c[0], c[1], c[2]]);
+        }
+        function qSlerp(a, b, t) {
+            let d = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
+            if (d < 0) { b = b.map(c => -c); d = -d; }
+            if (d > 0.9995) return qNorm(a.map((c, i) => c + (b[i] - c) * t));
+            const th = Math.acos(d), s = Math.sin(th);
+            const wa = Math.sin((1 - t) * th) / s, wb = Math.sin(t * th) / s;
+            return a.map((c, i) => c * wa + b[i] * wb);
+        }
+        function qAngle(a, b) {
+            const d = Math.abs(a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]);
+            return 2 * Math.acos(Math.min(1, d));
+        }
+        function qMatrix(q) {
+            const [w, x, y, z] = q;
+            return [
+                [1 - 2*(y*y + z*z), 2*(x*y - w*z),     2*(x*z + w*y)],
+                [2*(x*y + w*z),     1 - 2*(x*x + z*z), 2*(y*z - w*x)],
+                [2*(x*z - w*y),     2*(y*z + w*x),     1 - 2*(x*x + y*y)]
+            ];
+        }
+        function mv(m, v) {
+            return [dot(m[0], v), dot(m[1], v), dot(m[2], v)];
+        }
+
+        // ---------- Dice geometry (opposite faces add up to 7) ----------
+        const FACES = [
+            { n: [0, 0, 1],  u: [1, 0, 0],  v: [0, 1, 0], value: 1 },
+            { n: [0, 0, -1], u: [1, 0, 0],  v: [0, -1, 0], value: 6 },
+            { n: [1, 0, 0],  u: [0, 1, 0],  v: [0, 0, 1], value: 2 },
+            { n: [-1, 0, 0], u: [0, -1, 0], v: [0, 0, 1], value: 5 },
+            { n: [0, 1, 0],  u: [-1, 0, 0], v: [0, 0, 1], value: 3 },
+            { n: [0, -1, 0], u: [1, 0, 0],  v: [0, 0, 1], value: 4 }
+        ];
+        const PIPS = {
+            1: [[0, 0]],
+            2: [[-1, -1], [1, 1]],
+            3: [[-1, -1], [0, 0], [1, 1]],
+            4: [[-1, -1], [1, -1], [-1, 1], [1, 1]],
+            5: [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]],
+            6: [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]]
+        };
+        const CORNERS = [];
+        for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) CORNERS.push([sx*HALF, sy*HALF, sz*HALF]);
+
+        // ---------- Dice state ----------
+        const dice = {
+            pos: [0, 0, HALF],
+            vel: [0, 0, 0],
+            omega: [0, 0, 0],
+            q: [1, 0, 0, 0]
+        };
+        let isRolling = false;
+        let settling = false;
+        let settleTarget = null;
+        let rollTime = 0;
+        let resolveRoll = null;
+        let loopRunning = false;
+        let lastTs = 0;
+        let particles = [];
+
+        function resetDice() {
+            dice.pos = [0, 0, HALF];
+            dice.vel = [0, 0, 0];
+            dice.omega = [0, 0, 0];
+            // Face 6 up, slightly turned so it looks 3D
+            dice.q = qMul(qAxisAngle([0, 0, 1], 0.4), [0, 1, 0, 0]);
+            isRolling = false;
+            settling = false;
+        }
+        resetDice();
+
+        function topFace() {
+            const m = qMatrix(dice.q);
+            let best = FACES[0], bestZ = -Infinity, bestN = null;
+            for (const f of FACES) {
+                const nw = mv(m, f.n);
+                if (nw[2] > bestZ) { bestZ = nw[2]; best = f; bestN = nw; }
+            }
+            return { face: best, worldNormal: bestN };
+        }
+
+        // ---------- Physics ----------
+        function step(dt) {
+            const d = dice;
+
+            if (!settling) {
+                d.vel[2] -= GRAVITY * dt;
+                // Integrate rotation: q' = 0.5 * omega * q
+                const dq = qMul([0, ...d.omega], d.q);
+                d.q = qNorm(d.q.map((c, i) => c + 0.5 * dq[i] * dt));
+            } else {
+                d.q = qSlerp(d.q, settleTarget, 1 - Math.exp(-14 * dt));
+                d.vel[0] *= Math.exp(-10 * dt);
+                d.vel[1] *= Math.exp(-10 * dt);
+                d.vel[2] = Math.min(d.vel[2], 0) - GRAVITY * dt;
+            }
+
+            for (let i = 0; i < 3; i++) d.pos[i] += d.vel[i] * dt;
+
+            // Extent of the rotated cube
+            const m = qMatrix(d.q);
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity;
+            for (const c of CORNERS) {
+                const w = mv(m, c);
+                minX = Math.min(minX, w[0]); maxX = Math.max(maxX, w[0]);
+                minY = Math.min(minY, w[1]); maxY = Math.max(maxY, w[1]);
+                minZ = Math.min(minZ, w[2]);
+            }
+
+            // Floor
+            let contact = false;
+            if (d.pos[2] + minZ <= 0.0005) {
+                d.pos[2] = -minZ;
+                contact = true;
+                if (d.vel[2] < 0) {
+                    const impact = -d.vel[2];
+                    if (impact > 0.35 && !settling) {
+                        // Bounce: lose energy, kick the spin a little
+                        d.vel[2] = impact * 0.38;
+                        d.vel[0] *= 0.82;
+                        d.vel[1] *= 0.82;
+                        const kick = randUnit();
+                        for (let i = 0; i < 3; i++) d.omega[i] = d.omega[i] * 0.7 + kick[i] * impact * 2.2;
+                    } else {
+                        d.vel[2] = 0;
+                    }
+                }
+                if (!settling) {
+                    // Sliding friction
+                    const f = Math.exp(-2.6 * dt);
+                    d.vel[0] *= f;
+                    d.vel[1] *= f;
+                    // Tumble in the direction of travel (rolling), yaw spin dies out
+                    const k = Math.min(1, 7 * dt);
+                    d.omega[0] += (-d.vel[1] / HALF - d.omega[0]) * k;
+                    d.omega[1] += (d.vel[0] / HALF - d.omega[1]) * k;
+                    d.omega[2] *= Math.exp(-3 * dt);
+                }
+            }
+
+            // Walls
+            if (d.pos[0] + maxX > BOUND_X) { d.pos[0] = BOUND_X - maxX; if (d.vel[0] > 0) wallHit(0); }
+            if (d.pos[0] + minX < -BOUND_X) { d.pos[0] = -BOUND_X - minX; if (d.vel[0] < 0) wallHit(0); }
+            if (d.pos[1] + maxY > BOUND_Y) { d.pos[1] = BOUND_Y - maxY; if (d.vel[1] > 0) wallHit(1); }
+            if (d.pos[1] + minY < -BOUND_Y) { d.pos[1] = -BOUND_Y - minY; if (d.vel[1] < 0) wallHit(1); }
+
+            return contact;
+        }
+
+        function wallHit(axis) {
+            dice.vel[axis] = -dice.vel[axis] * 0.55;
+            dice.omega[2] += (Math.random() - 0.5) * 10;
+            const kick = randUnit();
+            for (let i = 0; i < 3; i++) dice.omega[i] += kick[i] * 3;
+        }
+
+        function updatePhysics(dt) {
+            const SUBSTEPS = 6;
+            let contact = false;
+            for (let i = 0; i < SUBSTEPS; i++) contact = step(dt / SUBSTEPS) || contact;
+            rollTime += dt;
+
+            const speed = Math.hypot(dice.vel[0], dice.vel[1]);
+            const spin = Math.hypot(...dice.omega);
+
+            if (!settling && contact && ((rollTime > 0.6 && speed < 0.22 && spin < 7) || rollTime > 4)) {
+                // Tip over onto the face that is closest to pointing up
+                const { worldNormal } = topFace();
+                settleTarget = qNorm(qMul(qFromTo(worldNormal, [0, 0, 1]), dice.q));
+                settling = true;
+                dice.omega = [0, 0, 0];
+            }
+
+            if (settling && qAngle(dice.q, settleTarget) < 0.004 && speed < 0.02) {
+                dice.q = settleTarget;
+                dice.vel = [0, 0, 0];
+                finishRoll();
+            }
+        }
+
+        // ---------- Rendering ----------
+        function project(p) {
+            const yc = p[1] * COS_T - p[2] * SIN_T;
+            const zc = p[1] * SIN_T + p[2] * COS_T;
+            const s = CAM_D / (CAM_D - zc);
+            const m = Math.min(canvasW, canvasH);
+            return [canvasW / 2 + p[0] * s * m, canvasH / 2 + 0.04 * m + yc * s * m, zc, s];
+        }
+
+        function convexHull(pts) {
+            pts = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+            const crossZ = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+            const lower = [], upper = [];
+            for (const p of pts) {
+                while (lower.length >= 2 && crossZ(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
+                lower.push(p);
+            }
+            for (let i = pts.length - 1; i >= 0; i--) {
+                const p = pts[i];
+                while (upper.length >= 2 && crossZ(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop();
+                upper.push(p);
+            }
+            upper.pop(); lower.pop();
+            return lower.concat(upper);
+        }
+
+        function rgb(c, k) {
+            return `rgb(${Math.round(Math.min(255, c[0]*k))},${Math.round(Math.min(255, c[1]*k))},${Math.round(Math.min(255, c[2]*k))})`;
+        }
+
+        function drawShadow(m) {
+            const pts = CORNERS.map(c => {
+                const w = mv(m, c);
+                const p = [dice.pos[0] + w[0], dice.pos[1] + w[1], dice.pos[2] + w[2]];
+                const t = p[2];
+                const f = project([p[0] + SHADOW_DIR[0]*t, p[1] + SHADOW_DIR[1]*t, 0]);
+                return [f[0], f[1]];
+            });
+            const hull = convexHull(pts);
+            const height = Math.max(0, dice.pos[2] - HALF);
+            const alpha = 0.22 * Math.max(0.35, 1 - height * 2.5);
+            const blur = Math.min(canvasW, canvasH) * (0.012 + height * 0.06);
+
+            ctx.save();
+            ctx.filter = `blur(${blur.toFixed(1)}px)`;
+            ctx.fillStyle = `rgba(12, 74, 110, ${alpha})`;
+            ctx.beginPath();
+            hull.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawCube(m) {
+            const unitPx = Math.min(canvasW, canvasH);
+            const faces = [];
+            for (const f of FACES) {
+                const nw = mv(m, f.n);
+                const center = [0, 1, 2].map(i => dice.pos[i] + nw[i] * HALF);
+                const toCam = [0, 1, 2].map(i => CAM_POS[i] - center[i]);
+                if (dot(nw, toCam) <= 0) continue; // facing away
+
+                const uw = mv(m, f.u), vw = mv(m, f.v);
+                const at = (a, b, lift = 1) => [0, 1, 2].map(i =>
+                    dice.pos[i] + nw[i] * HALF * lift + (uw[i] * a + vw[i] * b) * HALF);
+                const pc = project(center);
+                faces.push({ f, nw, uw, vw, at, depth: pc[2], scale: pc[3] });
+            }
+            faces.sort((a, b) => a.depth - b.depth); // far faces first
+
+            for (const face of faces) {
+                const light = 0.52 + 0.48 * Math.max(0, dot(face.nw, LIGHT));
+                const quad = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => project(face.at(a * 0.93, b * 0.93)));
+
+                // Body: thick round-joined stroke gives soft, rounded edges
+                ctx.fillStyle = ctx.strokeStyle = rgb(COLORS.body, light);
+                ctx.lineJoin = 'round';
+                ctx.lineWidth = HALF * unitPx * face.scale * 0.16;
+                ctx.beginPath();
+                quad.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Pips
+                ctx.fillStyle = rgb(COLORS.pip, Math.min(1, light + 0.2));
+                for (const [pa, pb] of PIPS[face.f.value]) {
+                    ctx.beginPath();
+                    for (let k = 0; k <= 16; k++) {
+                        const ang = (k / 16) * Math.PI * 2;
+                        const a = pa * 0.5 + Math.cos(ang) * 0.21;
+                        const b = pb * 0.5 + Math.sin(ang) * 0.21;
+                        const p = project(face.at(a, b, 1.002));
+                        k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+        }
+
+        function createParticles(x, y) {
+            const k = Math.min(canvasW, canvasH) / 400;
+            for (let i = 0; i < 40; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = (Math.random() * 8 + 4) * k;
+                particles.push({
+                    x, y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed - 3 * k,
+                    size: (Math.random() * 10 + 5) * k,
+                    color: COLORS.confetti[Math.floor(Math.random() * COLORS.confetti.length)],
+                    life: 1.0,
+                    rotation: Math.random() * 360,
+                    rs: (Math.random() - 0.5) * 10,
+                    g: 0.2 * k
+                });
+            }
+        }
+
+        function drawParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.vy += p.g;
+                p.life -= 0.015; p.rotation += p.rs;
+                if (p.life <= 0) { particles.splice(i, 1); continue; }
+
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                ctx.rotate(p.rotation * Math.PI / 180);
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                if (i % 2 === 0) {
+                    ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, p.size/2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        function draw() {
+            if (!canvasW || !canvasH) return;
+            ctx.clearRect(0, 0, canvasW, canvasH);
+            const m = qMatrix(dice.q);
+            drawShadow(m);
+            drawCube(m);
+            drawParticles();
+        }
+
+        // ---------- Loop ----------
+        function loop(ts) {
+            const dt = Math.min((ts - lastTs) / 1000, 1 / 30);
+            lastTs = ts;
+            if (isRolling) updatePhysics(dt);
+            draw();
+            if (isRolling || particles.length) {
+                requestAnimationFrame(loop);
+            } else {
+                loopRunning = false;
+            }
+        }
+
+        function startLoop() {
+            if (loopRunning) return;
+            loopRunning = true;
+            requestAnimationFrame(ts => { lastTs = ts; requestAnimationFrame(loop); });
+        }
+
+        // ---------- Rolling ----------
+        function rollDice() {
+            return new Promise((resolve) => {
+                if (isRolling) return;
+                resolveRoll = resolve;
+                isRolling = true;
+                settling = false;
+                rollTime = 0;
+                particles = [];
+                resultText.textContent = "Rolling...";
+
+                // Scoop the dice up and toss it, roughly toward the middle of the table
+                const toCenter = normalize([
+                    -dice.pos[0] + (Math.random() - 0.5) * 0.7,
+                    -dice.pos[1] + (Math.random() - 0.5) * 0.7,
+                    0
+                ]);
+                const speed = 1.1 + Math.random() * 0.8;
+                dice.vel = [toCenter[0] * speed, toCenter[1] * speed, 2.3 + Math.random() * 0.6];
+                const axis = randUnit();
+                const spin = 16 + Math.random() * 10;
+                dice.omega = axis.map(c => c * spin);
+
+                startLoop();
+            });
+        }
+
+        function finishRoll() {
+            isRolling = false;
+            settling = false;
+            const value = topFace().face.value;
+            const sp = project([dice.pos[0], dice.pos[1], dice.pos[2] + HALF]);
+            createParticles(sp[0], sp[1]);
+            resultText.textContent = `You rolled a ${value}! 🎉`;
+            if (resolveRoll) { resolveRoll(value); resolveRoll = null; }
+        }
+
+        async function triggerRoll() {
+            if (isRolling) return;
+            try {
+                const result = await rollDice();
+                console.log(`Roll completed! Result: ${result}`);
+            } catch (error) {
+                console.error("Error during dice roll:", error);
+            }
+        }
+
+        // ---------- Modal ----------
+        function openModal() {
+            modalOverlay.classList.remove('hidden');
+            modalOverlay.classList.add('flex');
+            modalContent.classList.remove('modal-exit');
+            modalContent.classList.add('modal-enter');
+            document.body.classList.add('modal-open');
+
+            requestAnimationFrame(() => {
+                resultText.textContent = "Roll the dice to see!";
+                resetDice();
+                particles = [];
+                resizeCanvas();
+            });
+
+            window.addEventListener('keydown', handleKeyPress);
+        }
+
+        function closeModal() {
+            modalContent.classList.remove('modal-enter');
+            modalContent.classList.add('modal-exit');
+            document.body.classList.remove('modal-open');
+
+            setTimeout(() => {
+                modalOverlay.classList.add('hidden');
+                modalOverlay.classList.remove('flex');
+            }, 300);
+
+            window.removeEventListener('keydown', handleKeyPress);
+        }
+
+        function handleKeyPress(e) {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                triggerRoll();
+            }
+        }
+
+        openModalBtn.addEventListener('click', openModal);
+        closeModalBtn.addEventListener('click', closeModal);
+        canvasContainer.addEventListener('click', triggerRoll);
+    </script>
+</body>
+</html>

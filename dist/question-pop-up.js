@@ -1,0 +1,140 @@
+export function createQuestionPopup(container, timeLimitSeconds = 30, onResolve) {
+    // Mockup data based on the specification[cite: 1]
+    const mockup = {
+        questionText: "The name of <i>Capitol</i> city is",
+        answers: ["Washington D.C.", "New York", "Los Angeles", "Chicago"],
+        correctIndex: 0,
+    };
+    // 1. Create Overlay Container
+    const overlay = document.createElement("div");
+    overlay.id = "question-popup-overlay";
+    Object.assign(overlay.style, {
+        position: "absolute",
+        top: "0",
+        left: "0",
+        width: "100%",
+        height: "100%",
+        backgroundColor: "rgba(0, 0, 0, 0.7)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        fontFamily: "Arial, sans-serif",
+        zIndex: "1000",
+    });
+    // 2. Create Modal Box
+    const modal = document.createElement("div");
+    Object.assign(modal.style, {
+        position: "relative",
+        backgroundColor: "#fff",
+        padding: "30px",
+        borderRadius: "10px",
+        border: "4px solid #333", // Border around the pop-up
+        width: "400px",
+        boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+        textAlign: "center",
+    });
+    // 3. Create Timer (Top Right Corner)
+    const timerEl = document.createElement("div");
+    Object.assign(timerEl.style, {
+        position: "absolute",
+        top: "10px",
+        right: "15px",
+        fontSize: "20px",
+        fontWeight: "bold",
+        color: "green", // Starts green
+    });
+    timerEl.innerText = timeLimitSeconds.toString();
+    // 4. Create Question Text with Red Word Formatting
+    const questionEl = document.createElement("div");
+    Object.assign(questionEl.style, {
+        fontSize: "22px",
+        fontWeight: "bold",
+        marginBottom: "20px",
+        paddingBottom: "20px",
+        borderBottom: "2px solid #ccc", // Separator between question and answers
+    });
+    // Replace <i> tags with a span styled in red
+    const formattedText = mockup.questionText.replace(/<i>(.*?)<\/i>/g, '<span style="color: red;">$1</span>');
+    questionEl.innerHTML = formattedText;
+    // 5. Create Answers Container
+    const answersContainer = document.createElement("div");
+    Object.assign(answersContainer.style, {
+        display: "flex",
+        flexDirection: "column",
+        gap: "10px",
+    });
+    let timerInterval;
+    const closePopup = (isCorrect, isTimeout = false) => {
+        clearInterval(timerInterval);
+        container.removeChild(overlay);
+        // Remove injected style
+        const styleTag = document.getElementById("answer-hover-styles");
+        if (styleTag)
+            styleTag.remove();
+        onResolve(isCorrect, isTimeout);
+    };
+    // 6. Inject CSS for Hover Effects
+    if (!document.getElementById("answer-hover-styles")) {
+        const style = document.createElement("style");
+        style.id = "answer-hover-styles";
+        style.innerHTML = `
+      .answer-btn {
+        background-color: #f0f0f0;
+        border: 2px solid #ddd;
+        padding: 12px;
+        border-radius: 5px;
+        font-size: 18px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .answer-btn:hover {
+        background-color: #3498db;
+        color: white;
+        border-color: #2980b9;
+      }
+    `;
+        document.head.appendChild(style);
+    }
+    // 7. Render Randomized Answers
+    // Map to objects to keep track of the original correct index before shuffling
+    const shuffledAnswers = mockup.answers
+        .map((text, index) => ({ text, isCorrect: index === mockup.correctIndex }))
+        .sort(() => Math.random() - 0.5);
+    shuffledAnswers.forEach((ans, index) => {
+        const btn = document.createElement("button");
+        btn.className = "answer-btn";
+        btn.innerText = `${index + 1}. ${ans.text}`;
+        btn.onclick = () => {
+            closePopup(ans.isCorrect);
+        };
+        answersContainer.appendChild(btn);
+    });
+    // Assemble Modal
+    modal.appendChild(timerEl);
+    modal.appendChild(questionEl);
+    modal.appendChild(answersContainer);
+    overlay.appendChild(modal);
+    container.appendChild(overlay);
+    // 8. Timer Logic
+    let timeLeft = timeLimitSeconds;
+    timerInterval = window.setInterval(() => {
+        timeLeft--;
+        timerEl.innerText = timeLeft.toString();
+        // Change to red for the last 10 seconds[cite: 1]
+        if (timeLeft <= 10) {
+            timerEl.style.color = "red";
+        }
+        if (timeLeft <= 0) {
+            closePopup(false, true); // Timeout triggers wrong answer logic[cite: 1]
+        }
+    }, 1000);
+    // 9. Keyboard controls (1-4 keys)[cite: 1]
+    const keydownHandler = (e) => {
+        const keyNum = parseInt(e.key);
+        if (keyNum >= 1 && keyNum <= 4 && keyNum <= shuffledAnswers.length) {
+            window.removeEventListener("keydown", keydownHandler);
+            closePopup(shuffledAnswers[keyNum - 1].isCorrect);
+        }
+    };
+    window.addEventListener("keydown", keydownHandler);
+}
