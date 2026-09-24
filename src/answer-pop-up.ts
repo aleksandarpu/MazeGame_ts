@@ -52,7 +52,7 @@ export function showResultPopup(
   message.style.marginBottom = "25px";
 
   const prompt = document.createElement("div");
-  prompt.innerText = "Press Space or Click to continue";
+  prompt.innerText = "Click, press Space, or press Enter to continue";
   prompt.style.fontSize = "14px";
   prompt.style.color = "#777";
   prompt.style.fontStyle = "italic";
@@ -79,9 +79,9 @@ export function showResultPopup(
     onDismiss();
   };
 
-  // 5. Event Listeners for Space key and Mouse click
+  // 6. Event Listeners for keyboard and mouse dismissal
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.code === "Space") {
+    if (e.code === "Space" || e.code === "Enter") {
       e.preventDefault(); // Prevent page scrolling
       closePopup();
     }
@@ -90,10 +90,8 @@ export function showResultPopup(
   window.addEventListener("keydown", handleKeyDown);
   overlay.addEventListener("click", closePopup);
 
-  // 6. Auto-close for Correct pop-up
-  if (isCorrect) {
-    autoCloseTimeout = window.setTimeout(() => {
-      closePopup();
-    }, 5000); // Display for 5 sec[cite: 1]
-  }
+  // Auto-close both result variants after five seconds.
+  autoCloseTimeout = window.setTimeout(() => {
+    closePopup();
+  }, 5000);
 }

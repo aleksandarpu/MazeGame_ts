@@ -4,6 +4,7 @@ import { renderGameRoomScreen } from "./game-room-screen";
 import { renderGamePlayScreen } from "./game";
 import { generateBraidedMaze } from "./maze_generator";
 import { placeFlagsInMaze } from "./place_flags_in_maze";
+import { showResultPopup } from "./answer-pop-up";
 //const path = require('path');
 // Inside your server code, pointing to root index.html from dist/
 //res.sendFile(path.join(__dirname, '../index.html'));
@@ -119,11 +120,9 @@ function navigateToGamePlay() {
     };
     // Mount the game screen
     const cleanupGameInputs = renderGamePlayScreen(appContainer, initialGameState, advanceTurn, updatePlayer, showVictoryPopup, (durationMs, onDismiss) => {
-        console.log(`Showing CORRECT popup for ${durationMs}ms`);
-        setTimeout(onDismiss, durationMs); // Mocking the popup behavior
+        showResultPopup(appContainer, true, onDismiss);
     }, (onDismiss) => {
-        console.log("Showing WRONG popup");
-        setTimeout(onDismiss, 2000); // Mocking manual dismissal after 2 seconds
+        showResultPopup(appContainer, false, onDismiss);
     });
     // If you ever unmount this screen (e.g., returning to lobby), call cleanupGameInputs()
 }
