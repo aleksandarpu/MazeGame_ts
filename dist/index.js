@@ -3,6 +3,7 @@ import { renderLobbyScreen } from "./lobby-screen";
 import { renderGameRoomScreen } from "./game-room-screen";
 import { renderGamePlayScreen } from "./game";
 import { generateBraidedMaze } from "./maze_generator";
+import { placeFlagsInMaze } from "./place_flags_in_maze";
 //const path = require('path');
 // Inside your server code, pointing to root index.html from dist/
 //res.sendFile(path.join(__dirname, '../index.html'));
@@ -87,22 +88,30 @@ function navigateToGameRoom() {
  * 4. Game Play Controller
  */
 function navigateToGamePlay() {
+    const maze = generateBraidedMaze(15, 15);
+    placeFlagsInMaze(maze, 4, 2);
     // Initialize initial game state[cite: 1]
     const initialGameState = {
         width: 15,
-        maze: generateBraidedMaze(15, 15), // Generate random maze 15x15 fields[cite: 1]
+        maze,
         players: [
             { id: appState.currentUserId, name: appState.currentUserName, x: 0, y: 14, color: "#e74c3c", score: 0, steps: 0, isCurrentTurn: true },
             { id: "uid_2", name: "Bob", x: 0, y: 14, color: "#3498db", score: 0, steps: 0, isCurrentTurn: false }
         ]
     };
     const advanceTurn = () => {
-        console.log("Advancing turn to next player");
-        // Implement turn rotation logic here and sync with Firestore
+        const currentIndex = initialGameState.players.findIndex((player) => player.isCurrentTurn);
+        const nextIndex = (currentIndex + 1) % initialGameState.players.length;
+        initialGameState.players.forEach((player, index) => {
+            player.isCurrentTurn = index === nextIndex;
+            if (index === nextIndex)
+                player.steps = 0;
+        });
     };
     const updatePlayer = (playerId, updates) => {
-        console.log(`Updating player ${playerId}:`, updates);
-        // Sync updates to Firestore
+        const player = initialGameState.players.find((item) => item.id === playerId);
+        if (player)
+            Object.assign(player, updates);
     };
     const showVictoryPopup = () => {
         console.log("Game Over! Triggering victory popup...");

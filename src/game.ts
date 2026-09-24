@@ -192,6 +192,13 @@ export function renderGamePlayScreen(
     }
   };
 
+  const handleTurnAdvance = () => {
+    advanceTurn();
+    updateUI();
+    drawGame();
+    showDicePopup();
+  };
+
   // 4. Question Pop-up Handler Hook
   const handleQuestionTrigger = (flag: Flag, playerId: string) => {
     // Use the imported question pop-up generator[cite: 5]
@@ -209,9 +216,7 @@ export function renderGamePlayScreen(
       } else {
         updatePlayer(playerId, { steps: 0 });
         showWrongPopup(() => {
-          advanceTurn();
-          updateUI();
-          drawGame();
+          handleTurnAdvance();
         });
       }
     });
@@ -233,14 +238,11 @@ export function renderGamePlayScreen(
         gameState,
         handleQuestionTrigger,
         showVictoryPopup,
-        advanceTurn,
+        handleTurnAdvance,
         (id, updates) => {
           updatePlayer(id, updates);
           updateUI();
           drawGame();
-          if (gameState.players.find((player) => player.isCurrentTurn)?.steps === 0) {
-            showDicePopup();
-          }
         }
       );
     }

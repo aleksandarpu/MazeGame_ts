@@ -4,6 +4,7 @@ import { renderGameRoomScreen, RoomPlayer } from "./game-room-screen";
 import { renderGamePlayScreen } from "./game";
 import { GameState } from "./GameState";
 import { generateBraidedMaze } from "./maze_generator";
+import { placeFlagsInMaze } from "./place_flags_in_maze";
 
 //const path = require('path');
 // Inside your server code, pointing to root index.html from dist/
@@ -113,10 +114,13 @@ function navigateToGameRoom() {
  * 4. Game Play Controller
  */
 function navigateToGamePlay() {
+  const maze = generateBraidedMaze(15, 15);
+  placeFlagsInMaze(maze, 4, 2);
+
   // Initialize initial game state[cite: 1]
   const initialGameState: GameState = {
     width: 15,
-    maze: generateBraidedMaze(15, 15), // Generate random maze 15x15 fields[cite: 1]
+    maze,
     players: [
       { id: appState.currentUserId, name: appState.currentUserName, x: 0, y: 14, color: "#e74c3c", score: 0, steps: 0, isCurrentTurn: true },
       { id: "uid_2", name: "Bob", x: 0, y: 14, color: "#3498db", score: 0, steps: 0, isCurrentTurn: false }

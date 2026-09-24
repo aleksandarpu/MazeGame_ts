@@ -1,6 +1,7 @@
 import { setupInputController } from "./maze_input_controller";
 import { executePlayerMove } from "./player_move";
 import { createQuestionPopup } from "./question-pop-up";
+import { renderGame } from "./render_maze";
 export function renderGamePlayScreen(container, gameState, advanceTurn, updatePlayer, showVictoryPopup, showCorrectPopup, showWrongPopup) {
     // Clear container and setup responsive wrapper
     container.innerHTML = "";
@@ -58,6 +59,72 @@ export function renderGamePlayScreen(container, gameState, advanceTurn, updatePl
     });
     container.appendChild(leftColumn);
     container.appendChild(scoreboardBox);
+    const canvasContext = canvas.getContext("2d");
+    if (!canvasContext) {
+        throw new Error("Unable to draw the maze: canvas context is unavailable.");
+    }
+    const drawGame = () => {
+        renderGame(canvasContext, gameState.maze, gameState.players, cellSize);
+    };
+    const showDicePopup = () => {
+        const currentPlayer = gameState.players.find((player) => player.isCurrentTurn);
+        if (!currentPlayer || currentPlayer.steps > 0)
+            return;
+        const overlay = document.createElement("div");
+        Object.assign(overlay.style, {
+            position: "fixed",
+            inset: "0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0, 0, 0, 0.65)",
+            zIndex: "10",
+        });
+        const popup = document.createElement("div");
+        Object.assign(popup.style, {
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "18px",
+            padding: "30px",
+            minWidth: "220px",
+            backgroundColor: "#fff",
+            color: "#2c3e50",
+            borderRadius: "12px",
+            textAlign: "center",
+        });
+        const title = document.createElement("h2");
+        title.textContent = `${currentPlayer.name}'s turn`;
+        title.style.margin = "0";
+        const result = document.createElement("div");
+        result.textContent = "Roll the dice to get your steps";
+        result.style.fontSize = "18px";
+        const rollButton = document.createElement("button");
+        rollButton.type = "button";
+        rollButton.textContent = "Roll dice";
+        Object.assign(rollButton.style, {
+            padding: "12px 24px",
+            border: "0",
+            borderRadius: "8px",
+            backgroundColor: "#f1c40f",
+            color: "#2c3e50",
+            fontSize: "18px",
+            fontWeight: "bold",
+            cursor: "pointer",
+        });
+        rollButton.addEventListener("click", () => {
+            const steps = Math.floor(Math.random() * 6) + 1;
+            currentPlayer.steps = steps;
+            result.textContent = `You rolled ${steps}. Move ${steps} step${steps === 1 ? "" : "s"}.`;
+            drawGame();
+            updateUI();
+            rollButton.remove();
+            setTimeout(() => overlay.remove(), 700);
+        });
+        popup.append(title, result, rollButton);
+        overlay.appendChild(popup);
+        container.appendChild(overlay);
+    };
     // 3. UI Update Logic
     const updateUI = () => {
         // Render Scoreboard
@@ -94,6 +161,12 @@ export function renderGamePlayScreen(container, gameState, advanceTurn, updatePl
       `;
         }
     };
+    const handleTurnAdvance = () => {
+        advanceTurn();
+        updateUI();
+        drawGame();
+        showDicePopup();
+    };
     // 4. Question Pop-up Handler Hook
     const handleQuestionTrigger = (flag, playerId) => {
         // Use the imported question pop-up generator[cite: 5]
@@ -106,13 +179,13 @@ export function renderGamePlayScreen(container, gameState, advanceTurn, updatePl
                 showCorrectPopup(5000, () => {
                     // Player continues their turn
                     updateUI();
+                    drawGame();
                 });
             }
             else {
                 updatePlayer(playerId, { steps: 0 });
                 showWrongPopup(() => {
-                    advanceTurn();
-                    updateUI();
+                    handleTurnAdvance();
                 });
             }
         });
@@ -121,13 +194,15 @@ export function renderGamePlayScreen(container, gameState, advanceTurn, updatePl
     const getCurrentPlayer = () => gameState.players.find(p => p.isCurrentTurn);
     const cleanupInput = setupInputController(canvas, cellSize, gameState.maze, getCurrentPlayer, (targetX, targetY) => {
         // Execute the move logic using the imported function[cite: 4]
-        executePlayerMove(targetX, targetY, gameState, handleQuestionTrigger, showVictoryPopup, advanceTurn, (id, updates) => {
+        executePlayerMove(targetX, targetY, gameState, handleQuestionTrigger, showVictoryPopup, handleTurnAdvance, (id, updates) => {
             updatePlayer(id, updates);
-            updateUI(); // Refresh UI on successful move
-            // TODO: Trigger a re-render of the canvas drawing loop here
+            updateUI();
+            drawGame();
         });
     }); //[cite: 3]
     // Initial UI render
     updateUI();
+    drawGame();
+    showDicePopup();
     return cleanupInput; // Return the listener cleanup function for unmounting
 }
