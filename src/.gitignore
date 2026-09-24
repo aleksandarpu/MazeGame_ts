@@ -1,0 +1,3 @@
+# Ignore the entire build output directory
+dist/
+node_modules/
