@@ -1,6 +1,7 @@
 import { createLanguagePicker, t } from "./i18n";
 import { getPlayerImageUrl } from "./render_maze";
 import { MAX_PLAYERS_PER_ROOM } from "./rooms";
+import { injectScreenStyles } from "./screen-styles";
 
 export type RoomPlayer = {
   id: string;
@@ -13,39 +14,6 @@ function injectRoomStyles() {
   const style = document.createElement("style");
   style.id = "room-screen-styles";
   style.textContent = `
-    .rs-page {
-      min-height: 100%;
-      box-sizing: border-box;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      padding: 40px 16px;
-      background: radial-gradient(circle at 20% 0%, #3b5873 0%, #2c3e50 55%, #1f2d3a 100%);
-      font-family: Fredoka, Arial, sans-serif;
-      color: #2c3e50;
-    }
-    .rs-card {
-      width: 100%;
-      max-width: 640px;
-      background: #ecf0f1;
-      border-radius: 20px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
-      overflow: hidden;
-    }
-    .rs-head {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px 16px;
-      padding: 20px 24px;
-      background: linear-gradient(135deg, #2471a3, #3498db);
-      color: #fff;
-    }
-    .rs-title { flex: 1; min-width: 0; margin: 0; font-size: 28px; overflow-wrap: anywhere; }
-    .rs-count { padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.2); font-weight: 600; }
-    .rs-head select { font-family: inherit; }
-    .rs-body { padding: 20px 24px 24px; }
-    .rs-subtitle { margin: 0 0 12px; font-size: 15px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #7f8c8d; }
     .rs-list { display: flex; flex-direction: column; gap: 10px; }
     .rs-row {
       display: flex;
@@ -88,32 +56,9 @@ function injectRoomStyles() {
     .rs-progress { height: 8px; border-radius: 999px; background: #ecf0f1; overflow: hidden; }
     .rs-progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #f39c12, #27ae60); transition: width 0.3s ease; }
     .rs-ready-count { font-size: 14px; color: #95a5a6; }
+    .rs-leave { flex: 0 1 auto; }
     .rs-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
-    .rs-btn {
-      flex: 1 1 200px;
-      padding: 14px 18px;
-      border: none;
-      border-radius: 12px;
-      font-family: inherit;
-      font-size: 18px;
-      font-weight: 700;
-      color: #fff;
-      cursor: pointer;
-      box-shadow: 0 4px 0 rgba(0, 0, 0, 0.2);
-      transition: transform 0.1s, box-shadow 0.1s, filter 0.2s;
-    }
-    .rs-btn:hover { filter: brightness(1.08); }
-    .rs-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2); }
-    .rs-btn:disabled { cursor: default; filter: grayscale(0.4); }
-    .rs-btn.ready { background: #27ae60; }
-    .rs-btn.unready { background: #e67e22; }
-    .rs-btn.leave { flex: 0 1 auto; background: #95a5a6; }
     @keyframes rs-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.7); } }
-    @media (max-width: 480px) {
-      .rs-page { padding: 16px; }
-      .rs-head, .rs-body { padding-left: 16px; padding-right: 16px; }
-      .rs-title { font-size: 22px; }
-    }
   `;
   document.head.appendChild(style);
 }
@@ -126,6 +71,7 @@ export function renderGameRoomScreen(
   onToggleStatus: (newStatus: "waiting" | "ready") => void,
   onLeave: () => void
 ) {
+  injectScreenStyles();
   injectRoomStyles();
 
   // Clear container (and styles an earlier screen put on it)
@@ -134,19 +80,19 @@ export function renderGameRoomScreen(
   container.style.overflowY = "auto";
 
   const page = document.createElement("div");
-  page.className = "rs-page";
+  page.className = "sc-page";
   const card = document.createElement("div");
-  card.className = "rs-card";
+  card.className = "sc-card";
   page.appendChild(card);
 
   // 1. Header: room name, player count, language
   const head = document.createElement("div");
-  head.className = "rs-head";
+  head.className = "sc-head";
   const title = document.createElement("h1");
-  title.className = "rs-title";
+  title.className = "sc-title";
   title.innerText = t("room.title", { name: roomName });
   const count = document.createElement("span");
-  count.className = "rs-count";
+  count.className = "sc-count";
   count.innerText = `${players.length} / ${MAX_PLAYERS_PER_ROOM}`;
   // Language switch: redraw this screen with the same data
   const languagePicker = createLanguagePicker(() =>
@@ -155,11 +101,11 @@ export function renderGameRoomScreen(
   head.append(title, count, languagePicker);
 
   const body = document.createElement("div");
-  body.className = "rs-body";
+  body.className = "sc-body";
 
   // 2. Player list[cite: 1], with free spots up to the room limit
   const listTitle = document.createElement("h2");
-  listTitle.className = "rs-subtitle";
+  listTitle.className = "sc-subtitle";
   listTitle.innerText = t("room.playersInRoom");
 
   const list = document.createElement("div");
@@ -245,7 +191,7 @@ export function renderGameRoomScreen(
   const me = players.find((p) => p.id === currentUserId);
   if (me) {
     const toggleBtn = document.createElement("button");
-    toggleBtn.className = me.status === "ready" ? "rs-btn unready" : "rs-btn ready";
+    toggleBtn.className = me.status === "ready" ? "sc-btn orange" : "sc-btn green";
     toggleBtn.innerText = t(me.status === "ready" ? "room.setWaiting" : "room.setReady");
     // The screen redraws with the new status once Firestore has the change
     toggleBtn.onclick = () => onToggleStatus(me.status === "ready" ? "waiting" : "ready");
@@ -253,7 +199,7 @@ export function renderGameRoomScreen(
   }
 
   const leaveBtn = document.createElement("button");
-  leaveBtn.className = "rs-btn leave";
+  leaveBtn.className = "sc-btn grey rs-leave";
   leaveBtn.innerText = t("room.leave");
   leaveBtn.onclick = () => {
     leaveBtn.disabled = true;

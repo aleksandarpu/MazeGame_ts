@@ -1,4 +1,6 @@
 import { createLanguagePicker, t } from "./i18n";
+import { MAX_PLAYERS_PER_ROOM } from "./rooms";
+import { injectScreenStyles } from "./screen-styles";
 
 export type LobbyRoom = {
   id: string;
@@ -6,6 +8,49 @@ export type LobbyRoom = {
   players: string[]; // List of player names currently in the room
   status: "waiting" | "started";
 };
+
+function injectLobbyStyles() {
+  if (document.getElementById("lobby-screen-styles")) return;
+  const style = document.createElement("style");
+  style.id = "lobby-screen-styles";
+  style.textContent = `
+    .ls-create { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
+    .ls-input {
+      flex: 1 1 220px;
+      min-width: 0;
+      padding: 12px 14px;
+      border: 2px solid #d5dbdf;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 17px;
+      color: #2c3e50;
+      background: #fff;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .ls-input:focus { border-color: #3498db; }
+    .ls-create .sc-btn { flex: 0 1 auto; }
+    .ls-list { display: flex; flex-direction: column; gap: 10px; }
+    .ls-room {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+      padding: 12px 14px;
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+    .ls-info { flex: 1 1 200px; min-width: 0; }
+    .ls-name { font-size: 19px; font-weight: 600; overflow-wrap: anywhere; }
+    .ls-players { font-size: 14px; color: #7f8c8d; overflow-wrap: anywhere; }
+    .ls-count { flex: none; padding: 4px 12px; border-radius: 999px; background: #eaf2f8; color: #2471a3; font-weight: 700; font-size: 14px; }
+    .ls-count.full { background: #fadbd8; color: #c0392b; }
+    .ls-room .sc-btn { flex: 0 0 auto; padding: 10px 18px; font-size: 16px; }
+    .ls-empty { margin: 0; padding: 18px; border: 2px dashed #bdc3c7; border-radius: 14px; text-align: center; font-style: italic; color: #95a5a6; }
+  `;
+  document.head.appendChild(style);
+}
 
 /**
  * Builds the lobby. Returns a function that redraws only the room list, so live
@@ -22,177 +67,127 @@ export function renderLobbyScreen(
   let updateRooms: (availableRooms: LobbyRoom[]) => void = () => {};
 
   const build = () => {
-    // Clear container
+    injectScreenStyles();
+    injectLobbyStyles();
+
+    // Clear container (and styles an earlier screen put on it)
     container.innerHTML = "";
-    container.removeAttribute("style"); // Drop styles an earlier screen set on the shared container
-    container.style.display = "flex";
-    container.style.flexDirection = "column";
-    container.style.padding = "20px";
-    container.style.fontFamily = "Arial, sans-serif";
-    container.style.color = "#333";
-    container.style.backgroundColor = "#ecf0f1";
-    container.style.height = "100%";
-    container.style.boxSizing = "border-box";
+    container.removeAttribute("style");
+    container.style.overflowY = "auto";
 
-    // 1. Header
-    const header = document.createElement("h1");
-    header.innerText = t("lobby.welcome", { name: currentUserName });
-    header.style.borderBottom = "2px solid #bdc3c7";
-    header.style.paddingBottom = "10px";
-    container.appendChild(header);
+    const page = document.createElement("div");
+    page.className = "sc-page";
+    const card = document.createElement("div");
+    card.className = "sc-card";
+    page.appendChild(card);
 
+    // 1. Header: welcome, language
+    const head = document.createElement("div");
+    head.className = "sc-head";
+    const title = document.createElement("h1");
+    title.className = "sc-title";
+    title.innerText = t("lobby.welcome", { name: currentUserName });
     // Language switch: rebuild the whole screen in the new language
-    const languagePicker = createLanguagePicker(build);
-    languagePicker.style.alignSelf = "flex-end";
-    container.appendChild(languagePicker);
+    head.append(title, createLanguagePicker(build));
+
+    const body = document.createElement("div");
+    body.className = "sc-body";
 
     // 2. Create New Room Section
     const createSection = document.createElement("div");
-    Object.assign(createSection.style, {
-      display: "flex",
-      gap: "10px",
-      marginBottom: "30px",
-      marginTop: "20px",
-    });
+    createSection.className = "ls-create";
 
     const roomNameInput = document.createElement("input");
     roomNameInput.type = "text";
+    roomNameInput.className = "ls-input";
     roomNameInput.placeholder = t("lobby.roomNamePlaceholder");
-    Object.assign(roomNameInput.style, {
-      padding: "10px",
-      fontSize: "16px",
-      borderRadius: "5px",
-      border: "1px solid #ccc",
-      flexGrow: "1",
-      maxWidth: "300px",
-    });
+    roomNameInput.maxLength = 30;
 
     const createBtn = document.createElement("button");
+    createBtn.className = "sc-btn green";
     createBtn.innerText = t("lobby.createRoom");
-    Object.assign(createBtn.style, {
-      padding: "10px 20px",
-      fontSize: "16px",
-      backgroundColor: "#27ae60",
-      color: "#fff",
-      border: "none",
-      borderRadius: "5px",
-      cursor: "pointer",
-    });
 
-    createBtn.onclick = () => {
+    const createRoom = () => {
       const name = roomNameInput.value.trim();
       if (name) {
         onCreateRoom(name); // User can create a new room and give it a name[cite: 1]
+      } else {
+        roomNameInput.focus();
       }
     };
+    createBtn.onclick = createRoom;
+    roomNameInput.onkeydown = (e: KeyboardEvent) => {
+      if (e.key === "Enter") createRoom();
+    };
 
-    createSection.appendChild(roomNameInput);
-    createSection.appendChild(createBtn);
-    container.appendChild(createSection);
+    createSection.append(roomNameInput, createBtn);
 
     // 3. Room List Section
     const roomListTitle = document.createElement("h2");
+    roomListTitle.className = "sc-subtitle";
     roomListTitle.innerText = t("lobby.availableGames");
-    container.appendChild(roomListTitle);
 
-    const roomListContainer = document.createElement("div");
-    Object.assign(roomListContainer.style, {
-      display: "flex",
-      flexDirection: "column",
-      gap: "15px",
-      overflowY: "auto",
-    });
-    container.appendChild(roomListContainer);
+    const roomList = document.createElement("div");
+    roomList.className = "ls-list";
 
     const loadingMsg = document.createElement("p");
+    loadingMsg.className = "ls-empty";
     loadingMsg.innerText = t("lobby.loading");
-    loadingMsg.style.fontStyle = "italic";
-    roomListContainer.appendChild(loadingMsg);
+    roomList.appendChild(loadingMsg);
+
+    body.append(createSection, roomListTitle, roomList);
+    card.append(head, body);
+    container.appendChild(page);
 
     updateRooms = (availableRooms: LobbyRoom[]) => {
       lastRooms = availableRooms;
-      roomListContainer.replaceChildren();
+      roomList.replaceChildren();
 
       // Filter out rooms that have already started[cite: 1]
       const pendingRooms = availableRooms.filter((r) => r.status === "waiting");
 
       if (pendingRooms.length === 0) {
         const emptyMsg = document.createElement("p");
+        emptyMsg.className = "ls-empty";
         emptyMsg.innerText = t("lobby.noRooms");
-        emptyMsg.style.fontStyle = "italic";
-        roomListContainer.appendChild(emptyMsg);
-      } else {
-        pendingRooms.forEach((room) => {
-          const roomCard = document.createElement("div");
-          Object.assign(roomCard.style, {
-            backgroundColor: "#fff",
-            padding: "15px",
-            borderRadius: "8px",
-            boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          });
-
-          // Room Info (Name and Player List)
-          const roomInfo = document.createElement("div");
-        
-          const roomName = document.createElement("div");
-          roomName.innerText = room.name;
-          roomName.style.fontWeight = "bold";
-          roomName.style.fontSize = "18px";
-          roomName.style.marginBottom = "5px";
-
-          const playerList = document.createElement("div");
-          // List players in each room[cite: 1]
-          playerList.innerText = t("lobby.players", { names: room.players.join(", ") || t("lobby.noPlayers") });
-          playerList.style.fontSize = "14px";
-          playerList.style.color = "#7f8c8d";
-
-          roomInfo.appendChild(roomName);
-          roomInfo.appendChild(playerList);
-
-          // Join Controls
-          const joinControls = document.createElement("div");
-          joinControls.style.display = "flex";
-          joinControls.style.alignItems = "center";
-          joinControls.style.gap = "15px";
-
-          const playerCount = document.createElement("span");
-          playerCount.innerText = `${room.players.length} / 6`;
-          playerCount.style.fontWeight = "bold";
-
-          const joinBtn = document.createElement("button");
-          joinBtn.innerText = t("lobby.join");
-        
-          // Limit number of players per game room to 6[cite: 1]
-          const isFull = room.players.length >= 6; 
-        
-          Object.assign(joinBtn.style, {
-            padding: "10px 20px",
-            fontSize: "16px",
-            backgroundColor: isFull ? "#95a5a6" : "#2980b9",
-            color: "#fff",
-            border: "none",
-            borderRadius: "5px",
-            cursor: isFull ? "not-allowed" : "pointer",
-          });
-          joinBtn.disabled = isFull;
-
-          joinBtn.onclick = () => {
-            if (!isFull) {
-              onJoinRoom(room.id); // User can join one of the game rooms[cite: 1]
-            }
-          };
-
-          joinControls.appendChild(playerCount);
-          joinControls.appendChild(joinBtn);
-
-          roomCard.appendChild(roomInfo);
-          roomCard.appendChild(joinControls);
-          roomListContainer.appendChild(roomCard);
-        });
+        roomList.appendChild(emptyMsg);
+        return;
       }
+
+      pendingRooms.forEach((room) => {
+        const row = document.createElement("div");
+        row.className = "ls-room";
+
+        // Room Info (Name and Player List)
+        const info = document.createElement("div");
+        info.className = "ls-info";
+        const name = document.createElement("div");
+        name.className = "ls-name";
+        name.innerText = room.name;
+        const playerList = document.createElement("div");
+        playerList.className = "ls-players";
+        // List players in each room[cite: 1]
+        playerList.innerText = t("lobby.players", { names: room.players.join(", ") || t("lobby.noPlayers") });
+        info.append(name, playerList);
+
+        // Limit number of players per game room to 6[cite: 1]
+        const isFull = room.players.length >= MAX_PLAYERS_PER_ROOM;
+
+        const count = document.createElement("span");
+        count.className = isFull ? "ls-count full" : "ls-count";
+        count.innerText = `${room.players.length} / ${MAX_PLAYERS_PER_ROOM}`;
+
+        const joinBtn = document.createElement("button");
+        joinBtn.className = "sc-btn blue";
+        joinBtn.innerText = t("lobby.join");
+        joinBtn.disabled = isFull;
+        joinBtn.onclick = () => {
+          if (!isFull) onJoinRoom(room.id); // User can join one of the game rooms[cite: 1]
+        };
+
+        row.append(info, count, joinBtn);
+        roomList.appendChild(row);
+      });
     };
     if (lastRooms) updateRooms(lastRooms);
   };
