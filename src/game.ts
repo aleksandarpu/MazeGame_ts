@@ -9,8 +9,6 @@ import { Player } from "./player";
 import { BOARD_PADDING, getPlayerImageUrl, renderGame } from "./render_maze";
 import { Theme, loadSavedTheme, saveTheme, themes } from "./themes";
 
-const MIN_STEP_PIPS = 6; // dice max; more pips appear when a correct answer adds steps
-
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
@@ -113,8 +111,6 @@ function injectLayoutStyles() {
     .gs-stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
     .gs-stat .gs-label { font-size: 14px; }
     .gs-big { font-size: 34px; line-height: 1; }
-    .gs-pips { display: flex; gap: 5px; }
-    .gs-pip { width: 14px; height: 14px; border-radius: 50%; }
     @keyframes gs-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
     @media (max-width: 1024px) {
       .gs-layout {
@@ -267,12 +263,9 @@ export function renderGamePlayScreen(
       });
     });
 
-    // Render Current Player Box: steps left as dice-like pips
+    // Render Current Player Box
     const currentPlayer = gameState.players.find((p) => p.isCurrentTurn);
     if (currentPlayer) {
-      const pipCount = Math.max(MIN_STEP_PIPS, currentPlayer.steps);
-      const pips = Array.from({ length: pipCount }, (_, i) =>
-        `<span class="gs-pip ${i < currentPlayer.steps ? "on" : ""}"></span>`).join("");
       currentPlayerBox.innerHTML = `
         <div class="gs-avatar">${playerIconHtml(currentPlayer)}</div>
         <div class="gs-who">
@@ -281,7 +274,7 @@ export function renderGamePlayScreen(
         </div>
         <div class="gs-stat">
           <span class="gs-label">Steps left</span>
-          <div class="gs-pips" title="${currentPlayer.steps} steps">${pips}</div>
+          <span class="gs-big">${currentPlayer.steps}</span>
         </div>
         <div class="gs-stat">
           <span class="gs-label">Score</span>

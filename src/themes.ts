@@ -45,8 +45,6 @@ export const themes: Theme[] = [
       .theme-garden .gs-points { font-family: "Lilita One", Arial, sans-serif; font-size: 22px; color: #ffe08a; text-shadow: 0 2px 0 #6d4323; }
       .theme-garden .gs-big { font-family: "Lilita One", Arial, sans-serif; color: #ffe08a; text-shadow: 0 3px 0 #6d4323; }
       .theme-garden .gs-label { color: #ffe9c4; }
-      .theme-garden .gs-pip { background: rgba(0,0,0,0.22); }
-      .theme-garden .gs-pip.on { background: #ffe08a; box-shadow: 0 3px 0 #b7892d; }
       .theme-garden .gs-mute input { accent-color: #6d4323; }
       .theme-garden .gs-avatar { background: rgba(255,244,214,0.3); border: 4px solid #ffe08a; }
     `,
@@ -70,8 +68,6 @@ export const themes: Theme[] = [
       .theme-neon .gs-points { font-family: "Lilita One", Arial, sans-serif; color: #ffe45c; text-shadow: 0 0 10px rgba(255,228,92,0.6); }
       .theme-neon .gs-big { font-family: "Lilita One", Arial, sans-serif; color: #ffe45c; text-shadow: 0 0 14px rgba(255,228,92,0.6); }
       .theme-neon .gs-label { color: #9aa3d6; }
-      .theme-neon .gs-pip { background: rgba(255,255,255,0.12); }
-      .theme-neon .gs-pip.on { background: #ffe45c; box-shadow: 0 0 10px #ffe45c; }
       .theme-neon .gs-mute input { accent-color: #7dffb2; }
       .theme-neon .gs-avatar { background: radial-gradient(circle, rgba(255,228,92,0.35), transparent 70%); }
     `,
@@ -95,8 +91,6 @@ export const themes: Theme[] = [
       .theme-candy .gs-points { background: #ff5fa2; color: #fff; border-radius: 999px; padding: 2px 12px; font-weight: 700; box-shadow: 0 3px 0 #c93d7c; }
       .theme-candy .gs-big { font-weight: 700; color: #8b5cf6; }
       .theme-candy .gs-label { color: #b0799b; font-weight: 600; }
-      .theme-candy .gs-pip { background: #fde2ef; }
-      .theme-candy .gs-pip.on { background: #8b5cf6; box-shadow: 0 3px 0 #6d28d9; }
       .theme-candy .gs-mute input { accent-color: #ff5fa2; }
       .theme-candy .gs-avatar { background: #f3e8ff; border: 4px solid #a78bfa; }
     `,
