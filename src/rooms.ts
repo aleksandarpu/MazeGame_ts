@@ -3,9 +3,11 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase_init";
 import { UserPresence, watchPresence } from "./presence";
+import { buildNewGame, createGameInTransaction, deleteGameInTransaction } from "./games";
 
 // Firestore: gameRooms/{roomId}
-//   { name, status, hostId, createdAt, isMock?, players: { [userId]: RoomMember } }
+//   { name, status, hostId, createdAt, isMock?, gameId?, players: { [userId]: RoomMember } }
+// The running game is in the subcollection document gameRooms/{roomId}/game/state (games.ts).
 // Players are a map keyed by user id, so joining / leaving / toggling ready
 // touches one field (players.<userId>) instead of rewriting an array.
 
@@ -27,6 +29,7 @@ export type Room = {
   status: RoomStatus;
   hostId: string;
   isMock?: boolean; // Seeded room: never deleted, reset to its seed when the real players leave
+  gameId: string; // Id of the game started in this room ("" before the start)
   players: Record<string, RoomMember>;
 };
 
@@ -46,6 +49,7 @@ function toRoom(id: string, data: any): Room {
     status: data.status ?? "waiting",
     hostId: data.hostId ?? "",
     isMock: data.isMock === true,
+    gameId: data.gameId ?? "",
     players: data.players ?? {},
   };
 }
@@ -75,7 +79,7 @@ const mockRoomSeeds: { id: string; name: string; players: Record<string, RoomMem
 ];
 
 function mockRoomData(seed: (typeof mockRoomSeeds)[number]) {
-  return { name: seed.name, status: "waiting", hostId: "", isMock: true, players: seed.players };
+  return { name: seed.name, status: "waiting", hostId: "", isMock: true, gameId: "", players: seed.players };
 }
 
 /** Creates the mock rooms if they don't exist yet. */
@@ -104,11 +108,15 @@ export function watchRooms(onChange: (rooms: Room[]) => void): Unsubscribe {
   );
 }
 
-/** Calls back with the room, or null once it has been deleted. */
-export function watchRoom(roomId: string, onChange: (room: Room | null) => void): Unsubscribe {
+/**
+ * Calls back with the room, or null once it has been deleted. `fromCache` is true when
+ * the data comes from the local cache and may be stale: a transaction (e.g. joinRoom)
+ * isn't applied to the cache, so the first cached snapshot can still lack the new player.
+ */
+export function watchRoom(roomId: string, onChange: (room: Room | null, fromCache: boolean) => void): Unsubscribe {
   return onSnapshot(
     doc(roomsCollection, roomId),
-    (snap) => onChange(snap.exists() ? toRoom(snap.id, snap.data()) : null),
+    (snap) => onChange(snap.exists() ? toRoom(snap.id, snap.data()) : null, snap.metadata.fromCache),
     (error) => console.error("Rooms: could not load the room", error)
   );
 }
@@ -170,6 +178,7 @@ export async function removePlayers(roomId: string, userIds: string[]): Promise<
       const seed = mockRoomSeeds.find((s) => s.id === roomId);
       if (room.isMock && seed) tx.update(ref, mockRoomData(seed));
       else tx.delete(ref);
+      deleteGameInTransaction(tx, roomId);
       return;
     }
 
@@ -193,7 +202,10 @@ export async function setMemberStatus(roomId: string, userId: string, status: Me
   });
 }
 
-/** Marks the room started if every player is still ready. Safe to call from every client. */
+/**
+ * Marks the room started if every player is still ready, and creates its game
+ * (maze, players in join order). Safe to call from every client.
+ */
 export async function startRoomIfAllReady(roomId: string): Promise<void> {
   await runTransaction(db, async (tx) => {
     const ref = doc(roomsCollection, roomId);
@@ -203,7 +215,9 @@ export async function startRoomIfAllReady(roomId: string): Promise<void> {
     const members = Object.values(room.players);
     if (room.status !== "waiting" || members.length === 0) return;
     if (!members.every((m) => m.status === "ready")) return;
-    tx.update(ref, { status: "started", startedAt: serverTimestamp() });
+    const gameId = doc(roomsCollection).id;
+    createGameInTransaction(tx, roomId, buildNewGame(gameId, sortedMembers(room)));
+    tx.update(ref, { status: "started", gameId, startedAt: serverTimestamp() });
   });
 }
 

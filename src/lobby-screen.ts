@@ -5,13 +5,16 @@ export type LobbyRoom = {
   status: "waiting" | "started";
 };
 
+/**
+ * Builds the lobby. Returns a function that redraws only the room list, so live
+ * room updates don't wipe the room name being typed.
+ */
 export function renderLobbyScreen(
   container: HTMLElement,
   currentUserName: string,
-  availableRooms: LobbyRoom[],
   onCreateRoom: (roomName: string) => void,
   onJoinRoom: (roomId: string) => void
-) {
+): (availableRooms: LobbyRoom[]) => void {
   // Clear container
   container.innerHTML = "";
   container.style.display = "flex";
@@ -86,87 +89,95 @@ export function renderLobbyScreen(
     gap: "15px",
     overflowY: "auto",
   });
-
-  // Filter out rooms that have already started[cite: 1]
-  const pendingRooms = availableRooms.filter((r) => r.status === "waiting");
-
-  if (pendingRooms.length === 0) {
-    const emptyMsg = document.createElement("p");
-    emptyMsg.innerText = "No open rooms available. Create one to start playing!";
-    emptyMsg.style.fontStyle = "italic";
-    roomListContainer.appendChild(emptyMsg);
-  } else {
-    pendingRooms.forEach((room) => {
-      const roomCard = document.createElement("div");
-      Object.assign(roomCard.style, {
-        backgroundColor: "#fff",
-        padding: "15px",
-        borderRadius: "8px",
-        boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-      });
-
-      // Room Info (Name and Player List)
-      const roomInfo = document.createElement("div");
-      
-      const roomName = document.createElement("div");
-      roomName.innerText = room.name;
-      roomName.style.fontWeight = "bold";
-      roomName.style.fontSize = "18px";
-      roomName.style.marginBottom = "5px";
-
-      const playerList = document.createElement("div");
-      // List players in each room[cite: 1]
-      playerList.innerText = `Players: ${room.players.join(", ") || "None"}`; 
-      playerList.style.fontSize = "14px";
-      playerList.style.color = "#7f8c8d";
-
-      roomInfo.appendChild(roomName);
-      roomInfo.appendChild(playerList);
-
-      // Join Controls
-      const joinControls = document.createElement("div");
-      joinControls.style.display = "flex";
-      joinControls.style.alignItems = "center";
-      joinControls.style.gap = "15px";
-
-      const playerCount = document.createElement("span");
-      playerCount.innerText = `${room.players.length} / 6`;
-      playerCount.style.fontWeight = "bold";
-
-      const joinBtn = document.createElement("button");
-      joinBtn.innerText = "Join Game";
-      
-      // Limit number of players per game room to 6[cite: 1]
-      const isFull = room.players.length >= 6; 
-      
-      Object.assign(joinBtn.style, {
-        padding: "10px 20px",
-        fontSize: "16px",
-        backgroundColor: isFull ? "#95a5a6" : "#2980b9",
-        color: "#fff",
-        border: "none",
-        borderRadius: "5px",
-        cursor: isFull ? "not-allowed" : "pointer",
-      });
-      joinBtn.disabled = isFull;
-
-      joinBtn.onclick = () => {
-        if (!isFull) {
-          onJoinRoom(room.id); // User can join one of the game rooms[cite: 1]
-        }
-      };
-
-      joinControls.appendChild(playerCount);
-      joinControls.appendChild(joinBtn);
-
-      roomCard.appendChild(roomInfo);
-      roomCard.appendChild(joinControls);
-      roomListContainer.appendChild(roomCard);
-    });
-  }
-
   container.appendChild(roomListContainer);
+
+  const loadingMsg = document.createElement("p");
+  loadingMsg.innerText = "Loading rooms...";
+  loadingMsg.style.fontStyle = "italic";
+  roomListContainer.appendChild(loadingMsg);
+
+  return (availableRooms: LobbyRoom[]) => {
+    roomListContainer.replaceChildren();
+
+    // Filter out rooms that have already started[cite: 1]
+    const pendingRooms = availableRooms.filter((r) => r.status === "waiting");
+
+    if (pendingRooms.length === 0) {
+      const emptyMsg = document.createElement("p");
+      emptyMsg.innerText = "No open rooms available. Create one to start playing!";
+      emptyMsg.style.fontStyle = "italic";
+      roomListContainer.appendChild(emptyMsg);
+    } else {
+      pendingRooms.forEach((room) => {
+        const roomCard = document.createElement("div");
+        Object.assign(roomCard.style, {
+          backgroundColor: "#fff",
+          padding: "15px",
+          borderRadius: "8px",
+          boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        });
+
+        // Room Info (Name and Player List)
+        const roomInfo = document.createElement("div");
+        
+        const roomName = document.createElement("div");
+        roomName.innerText = room.name;
+        roomName.style.fontWeight = "bold";
+        roomName.style.fontSize = "18px";
+        roomName.style.marginBottom = "5px";
+
+        const playerList = document.createElement("div");
+        // List players in each room[cite: 1]
+        playerList.innerText = `Players: ${room.players.join(", ") || "None"}`; 
+        playerList.style.fontSize = "14px";
+        playerList.style.color = "#7f8c8d";
+
+        roomInfo.appendChild(roomName);
+        roomInfo.appendChild(playerList);
+
+        // Join Controls
+        const joinControls = document.createElement("div");
+        joinControls.style.display = "flex";
+        joinControls.style.alignItems = "center";
+        joinControls.style.gap = "15px";
+
+        const playerCount = document.createElement("span");
+        playerCount.innerText = `${room.players.length} / 6`;
+        playerCount.style.fontWeight = "bold";
+
+        const joinBtn = document.createElement("button");
+        joinBtn.innerText = "Join Game";
+        
+        // Limit number of players per game room to 6[cite: 1]
+        const isFull = room.players.length >= 6; 
+        
+        Object.assign(joinBtn.style, {
+          padding: "10px 20px",
+          fontSize: "16px",
+          backgroundColor: isFull ? "#95a5a6" : "#2980b9",
+          color: "#fff",
+          border: "none",
+          borderRadius: "5px",
+          cursor: isFull ? "not-allowed" : "pointer",
+        });
+        joinBtn.disabled = isFull;
+
+        joinBtn.onclick = () => {
+          if (!isFull) {
+            onJoinRoom(room.id); // User can join one of the game rooms[cite: 1]
+          }
+        };
+
+        joinControls.appendChild(playerCount);
+        joinControls.appendChild(joinBtn);
+
+        roomCard.appendChild(roomInfo);
+        roomCard.appendChild(joinControls);
+        roomListContainer.appendChild(roomCard);
+      });
+    }
+  };
 }

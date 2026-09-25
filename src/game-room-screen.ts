@@ -9,7 +9,8 @@ export function renderGameRoomScreen(
   roomName: string,
   currentUserId: string,
   players: RoomPlayer[],
-  onToggleStatus: (newStatus: "waiting" | "ready") => void
+  onToggleStatus: (newStatus: "waiting" | "ready") => void,
+  onLeave: () => void
 ) {
   // Clear container
   container.innerHTML = "";
@@ -128,4 +129,24 @@ export function renderGameRoomScreen(
   }
 
   container.appendChild(statusMessage);
+
+  // 4. Back to the lobby
+  const leaveBtn = document.createElement("button");
+  leaveBtn.innerText = "Leave Room";
+  Object.assign(leaveBtn.style, {
+    alignSelf: "center",
+    marginTop: "25px",
+    padding: "10px 20px",
+    fontSize: "16px",
+    backgroundColor: "#7f8c8d",
+    color: "#fff",
+    border: "none",
+    borderRadius: "5px",
+    cursor: "pointer",
+  });
+  leaveBtn.onclick = () => {
+    leaveBtn.disabled = true;
+    onLeave();
+  };
+  container.appendChild(leaveBtn);
 }

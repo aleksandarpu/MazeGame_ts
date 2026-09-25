@@ -145,6 +145,17 @@ export class DiceScene {
     this.draw();
   }
 
+  /** Turns the dice (without physics) so `value` is on top, e.g. to match someone else's roll. */
+  showFace(value: number) {
+    const face = FACES.find((f) => f.value === value);
+    if (!face) return;
+    this.q = qMul(qAxisAngle([0, 0, 1], 0.4), qFromTo(face.n, [0, 0, 1]));
+    this.vel = [0, 0, 0];
+    this.omega = [0, 0, 0];
+    this.pos = [this.pos[0], this.pos[1], HALF];
+    this.draw();
+  }
+
   roll(): Promise<number> {
     return new Promise((resolve) => {
       if (this.isRolling || this.destroyed) return;
@@ -502,15 +513,15 @@ function injectDiceStyles() {
   document.head.appendChild(style);
 }
 
-/**
- * Shows a modal with a 3D die. The player rolls by clicking the die or pressing Space.
- * `onRolled` fires as soon as the die settles; the pop-up closes itself shortly after.
- */
-export function showDiceRollPopup(
-  container: HTMLElement,
-  playerName: string,
-  onRolled: (value: number) => void
-) {
+type DiceModal = {
+  resultText: HTMLDivElement;
+  canvas: HTMLCanvasElement;
+  canvasContainer: HTMLDivElement;
+  scene: DiceScene;
+  close: () => void;
+};
+
+function buildDiceModal(container: HTMLElement, playerName: string, hintText: string, resultMessage: string): DiceModal {
   injectDiceStyles();
 
   const overlay = document.createElement("div");
@@ -547,11 +558,11 @@ export function showDiceRollPopup(
   Object.assign(title.style, { margin: "0 0 4px 0", fontSize: "24px", color: "#0ea5e9" });
 
   const hint = document.createElement("div");
-  hint.textContent = "Click the dice or press Space!";
+  hint.textContent = hintText;
   Object.assign(hint.style, { fontSize: "16px", color: "#64748b", marginBottom: "8px" });
 
   const resultText = document.createElement("div");
-  resultText.textContent = "Roll the dice to get your steps";
+  resultText.textContent = resultMessage;
   Object.assign(resultText.style, { minHeight: "28px", marginBottom: "12px", fontSize: "20px", fontWeight: "bold", color: "#f59e0b" });
 
   const canvasContainer = document.createElement("div");
@@ -563,12 +574,13 @@ export function showDiceRollPopup(
     border: "4px dashed #bae6fd",
     borderRadius: "24px",
     overflow: "hidden",
-    cursor: "pointer",
     boxSizing: "border-box",
   });
 
   const canvas = document.createElement("canvas");
-  Object.assign(canvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", display: "block" });
+  Object.assign(canvas.style, {
+    position: "absolute", inset: "0", width: "100%", height: "100%", display: "block", transition: "opacity 0.2s",
+  });
 
   canvasContainer.appendChild(canvas);
   modal.append(title, hint, resultText, canvasContainer);
@@ -576,9 +588,10 @@ export function showDiceRollPopup(
   container.appendChild(overlay);
 
   const scene = new DiceScene(canvas, canvasContainer);
-  let hasRolled = false;
-
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     modal.className = "dice-modal-exit";
     setTimeout(() => {
       scene.destroy();
@@ -586,17 +599,43 @@ export function showDiceRollPopup(
     }, 300);
   };
 
+  return { resultText, canvas, canvasContainer, scene, close };
+}
+
+function rolledMessage(who: string, value: number): string {
+  return `${who} rolled ${value}! Move ${value} step${value === 1 ? "" : "s"}. 🎉`;
+}
+
+/**
+ * Shows a modal with a 3D die. The player rolls by clicking the die or pressing Space.
+ * `onRollStart` fires when the roll begins, `onRolled` as soon as the die settles;
+ * the pop-up closes itself shortly after.
+ */
+export function showDiceRollPopup(
+  container: HTMLElement,
+  playerName: string,
+  onRolled: (value: number) => void,
+  onRollStart: () => void = () => {}
+) {
+  const { resultText, canvasContainer, scene, close } = buildDiceModal(
+    container, playerName, "Click the dice or press Space!", "Roll the dice to get your steps"
+  );
+  canvasContainer.style.cursor = "pointer";
+
+  let hasRolled = false;
+
   const triggerRoll = async () => {
     if (hasRolled) return;
     hasRolled = true;
     window.removeEventListener("keydown", handleKeyDown);
     canvasContainer.style.cursor = "default";
     resultText.textContent = "Rolling...";
+    onRollStart();
 
     const rollSound = playSound("roll");
     const value = await scene.roll();
     fadeOutSound(rollSound);
-    resultText.textContent = `You rolled ${value}! Move ${value} step${value === 1 ? "" : "s"}. 🎉`;
+    resultText.textContent = rolledMessage("You", value);
     onRolled(value);
     // Let the confetti play before closing
     setTimeout(close, 1200);
@@ -611,4 +650,51 @@ export function showDiceRollPopup(
 
   canvasContainer.addEventListener("click", triggerRoll);
   window.addEventListener("keydown", handleKeyDown);
+}
+
+export type SpectatorDice = {
+  /** The player started rolling: tumble the dice and play the roll sound. */
+  startRolling: () => void;
+  /** The player's result: once the local tumble settles, fade to this face and close. */
+  showResult: (value: number) => void;
+  close: () => void;
+};
+
+/**
+ * The dice pop-up for players watching someone else's turn: it can't be clicked;
+ * it follows the roller through `startRolling` / `showResult`.
+ */
+export function showSpectatorDicePopup(container: HTMLElement, playerName: string): SpectatorDice {
+  const { resultText, canvas, scene, close } = buildDiceModal(
+    container, playerName, `Waiting for ${playerName} to roll...`, ""
+  );
+
+  let tumble: Promise<number> | null = null;
+  let rollSound: HTMLAudioElement | null = null;
+  let resultShown = false;
+
+  const startRolling = () => {
+    if (tumble || resultShown) return;
+    resultText.textContent = "Rolling...";
+    rollSound = playSound("roll");
+    tumble = scene.roll();
+  };
+
+  const showResult = async (value: number) => {
+    if (resultShown) return;
+    resultShown = true;
+    const landed = tumble ? await tumble : 0;
+    if (rollSound) fadeOutSound(rollSound);
+    if (landed !== value) {
+      // The local tumble is random: fade over to the roller's real face
+      canvas.style.opacity = "0";
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      scene.showFace(value);
+      canvas.style.opacity = "1";
+    }
+    resultText.textContent = rolledMessage(playerName, value);
+    setTimeout(close, 1500);
+  };
+
+  return { startRolling, showResult, close };
 }

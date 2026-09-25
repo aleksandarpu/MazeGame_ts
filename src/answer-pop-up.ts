@@ -1,7 +1,15 @@
+import { appendFormattedText } from "./question-pop-up";
+
+export type AnswerDetails = {
+  answerText: string | null; // The chosen answer, null when the time ran out
+  playerName?: string; // Set when showing someone else's answer
+};
+
 export function showResultPopup(
   container: HTMLElement,
   isCorrect: boolean,
-  onDismiss: () => void
+  onDismiss: () => void,
+  details: AnswerDetails = { answerText: null }
 ) {
   // 1. Create Overlay
   const overlay = document.createElement("div");
@@ -43,10 +51,30 @@ export function showResultPopup(
   title.style.margin = "0 0 15px 0";
   title.style.fontSize = "32px";
 
+  // The chosen answer, green if correct, red if wrong
+  const answerBox = document.createElement("div");
+  Object.assign(answerBox.style, {
+    padding: "12px",
+    borderRadius: "5px",
+    border: `2px solid ${borderColor}`,
+    backgroundColor: isCorrect ? "#d4f5e2" : "#fadbd8",
+    color: isCorrect ? "#1e8449" : "#c0392b",
+    fontSize: "18px",
+    fontWeight: "bold",
+    textAlign: "left",
+    marginBottom: "15px",
+  });
+  if (details.answerText === null) {
+    answerBox.textContent = "Time's up: no answer";
+  } else {
+    appendFormattedText(answerBox, details.answerText);
+  }
+
+  const who = details.playerName;
   const message = document.createElement("p");
-  message.innerText = isCorrect 
-    ? "+2 Score & +3 Steps!" 
-    : "You lost your remaining steps.";
+  message.innerText = isCorrect
+    ? who ? `${who} gets +2 Score & +3 Steps!` : "+2 Score & +3 Steps!"
+    : who ? `${who} lost the remaining steps.` : "You lost your remaining steps.";
   message.style.fontSize = "18px";
   message.style.color = "#333";
   message.style.marginBottom = "25px";
@@ -59,6 +87,7 @@ export function showResultPopup(
 
   // Assemble
   modal.appendChild(title);
+  modal.appendChild(answerBox);
   modal.appendChild(message);
   modal.appendChild(prompt);
   overlay.appendChild(modal);

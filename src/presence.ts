@@ -15,26 +15,13 @@ export type UserPresence = {
   lastChanged: number;
 };
 
-const USER_ID_KEY = "mazegame.userId";
+// A fresh id per page load, so every tab is a separate player. It isn't stored in
+// sessionStorage because "Duplicate tab" copies that, giving two tabs the same id.
+const clientUserId = `uid_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 
-/**
- * Returns this tab's user id, creating one on first use. It's kept in sessionStorage,
- * so a reload keeps the same id while a second tab is a separate player.
- */
+/** Returns this page's user id. */
 export function getClientUserId(): string {
-  try {
-    const saved = sessionStorage.getItem(USER_ID_KEY);
-    if (saved) return saved;
-  } catch {
-    // Storage blocked; fall through to a fresh id
-  }
-  const id = `uid_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
-  try {
-    sessionStorage.setItem(USER_ID_KEY, id);
-  } catch {
-    // Not persisted; the id only lasts for this page load
-  }
-  return id;
+  return clientUserId;
 }
 
 let currentUserId = "";

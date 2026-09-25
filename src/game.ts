@@ -1,10 +1,13 @@
 import { Cell, Flag, generateBraidedMaze } from "./maze_generator"; 
 import { setupInputController } from "./maze_input_controller"; 
 import { executePlayerMove } from "./player_move"; 
-import { createQuestionPopup } from "./question-pop-up"; 
-import { showDiceRollPopup } from "./dice-pop-up";
+import {
+  ActiveQuestion, CORRECT_ANSWER_INDEX, QuestionPopup, createQuestionPopup, getAnswerText, pickQuestion,
+} from "./question-pop-up";
+import { AnswerDetails } from "./answer-pop-up";
+import { SpectatorDice, showDiceRollPopup, showSpectatorDicePopup } from "./dice-pop-up";
 import { isGroupMuted, muteGroups, playSound, setGroupMuted } from "./sounds";
-import { GameState } from "./GameState";
+import { GamePhase, GameState, SyncedGameState } from "./GameState";
 import { Player } from "./player";
 import { BOARD_PADDING, getPlayerImageUrl, renderGame } from "./render_maze";
 import { Theme, loadSavedTheme, saveTheme, themes } from "./themes";
@@ -130,15 +133,37 @@ function injectLayoutStyles() {
   document.head.appendChild(style);
 }
 
+export type GameScreenOptions = {
+  localUserId: string; // This client's player; it only acts on its own turns
+  publish: () => void; // gameState changed here: save it so the other players see it
+  showVictoryPopup: () => void;
+  /** Correct / Wrong pop-up with the chosen answer (details.playerName is set for someone else's answer) */
+  showAnswerResult: (isCorrect: boolean, details: AnswerDetails, onDismiss: () => void) => void;
+};
+
+export type GameScreen = {
+  /** Remove input listeners and stop the animation loop */
+  cleanup: () => void;
+  /** Take over the state another player saved, and play what happened (roll, move, answer, turn change) */
+  applyRemote: (next: SyncedGameState) => void;
+  /** Drop players who left the room; passes the turn on if it was theirs */
+  removePlayers: (playerIds: string[]) => void;
+};
+
+const phaseText: Record<GamePhase, string> = {
+  roll: "Rolling the dice",
+  move: "Moving",
+  question: "Answering a question",
+  finished: "Finished",
+};
+
 export function renderGamePlayScreen(
   container: HTMLElement,
   gameState: GameState,
-  advanceTurn: () => void,
-  updatePlayer: (playerId: string, updates: Partial<Player>) => void,
-  showVictoryPopup: () => void,
-  showCorrectPopup: (durationMs: number, onDismiss: () => void) => void,
-  showWrongPopup: (onDismiss: () => void) => void
-) {
+  options: GameScreenOptions
+): GameScreen {
+  const { localUserId, publish, showVictoryPopup, showAnswerResult } = options;
+
   // Clear container and setup responsive wrapper
   container.innerHTML = "";
   Object.assign(container.style, {
@@ -224,15 +249,76 @@ export function renderGamePlayScreen(
     drawGame();
   };
 
-  const showDicePopup = () => {
-    const currentPlayer = gameState.players.find((player) => player.isCurrentTurn);
-    if (!currentPlayer || currentPlayer.steps > 0) return;
+  const getCurrentPlayer = () => gameState.players.find((p) => p.isCurrentTurn);
 
-    showDiceRollPopup(container, currentPlayer.name, (steps) => {
-      currentPlayer.steps = steps;
-      drawGame();
-      updateUI();
+  // Real players play their own turns; mock players' turns are played by the first real player
+  const controllerOf = (player: Player) =>
+    player.isMock ? gameState.players.find((p) => !p.isMock)?.id ?? "" : player.id;
+  const isLocalTurn = () => {
+    const player = getCurrentPlayer();
+    return !!player && gameState.phase !== "finished" && controllerOf(player) === localUserId;
+  };
+
+  const updatePlayer = (playerId: string, updates: Partial<Player>) => {
+    const player = gameState.players.find((item) => item.id === playerId);
+    if (player) Object.assign(player, updates);
+  };
+
+  /** Save the local change for the other players and redraw */
+  const commit = () => {
+    publish();
+    updateUI();
+    drawGame();
+  };
+
+  // The dice pop-up of the current turn: the real one on the roller's client, a spectator one elsewhere
+  let spectatorDice: SpectatorDice | null = null;
+
+  const openDiceForCurrentPlayer = () => {
+    spectatorDice?.close();
+    spectatorDice = null;
+    const currentPlayer = getCurrentPlayer();
+    if (!currentPlayer || gameState.phase !== "roll") return;
+
+    if (!isLocalTurn()) {
+      spectatorDice = showSpectatorDicePopup(container, currentPlayer.name);
+      return;
+    }
+    const playerId = currentPlayer.id;
+    showDiceRollPopup(
+      container,
+      currentPlayer.name,
+      (steps) => {
+        updatePlayer(playerId, { steps });
+        gameState.lastRoll = steps;
+        gameState.phase = "move";
+        commit();
+      },
+      () => {
+        gameState.rollCount += 1;
+        gameState.lastRoll = 0;
+        publish();
+      }
+    );
+  };
+
+  const advanceTurn = () => {
+    const currentIndex = gameState.players.findIndex((player) => player.isCurrentTurn);
+    const nextIndex = (currentIndex + 1) % gameState.players.length;
+    gameState.players.forEach((player, index) => {
+      player.isCurrentTurn = index === nextIndex;
+      if (index === nextIndex) player.steps = 0;
     });
+    gameState.phase = "roll";
+    gameState.lastRoll = 0;
+  };
+
+  const finishGame = () => {
+    const winner = getCurrentPlayer();
+    gameState.phase = "finished";
+    gameState.winnerId = winner?.id ?? null;
+    commit();
+    showVictoryPopup();
   };
 
   // 3. UI Update Logic
@@ -269,8 +355,9 @@ export function renderGamePlayScreen(
       currentPlayerBox.innerHTML = `
         <div class="gs-avatar">${playerIconHtml(currentPlayer)}</div>
         <div class="gs-who">
-          <div class="gs-label">Now playing</div>
+          <div class="gs-label">Now playing${controllerOf(currentPlayer) === localUserId ? " (you)" : ""}</div>
           <div class="gs-who-name">${escapeHtml(currentPlayer.name)}</div>
+          <div class="gs-label">${phaseText[gameState.phase]}</div>
         </div>
         <div class="gs-stat">
           <span class="gs-label">Steps left</span>
@@ -293,50 +380,91 @@ export function renderGamePlayScreen(
     turnChangePending = true;
     setTimeout(() => {
       turnChangePending = false;
+      if (gameState.phase === "finished") return;
       playSound("changePlayer");
       advanceTurn();
-      updateUI();
-      drawGame();
-      showDicePopup();
+      commit();
+      openDiceForCurrentPlayer();
     }, TURN_CHANGE_DELAY_MS);
   };
 
   // 4. Question Pop-up Handler Hook
-  const handleQuestionTrigger = (flag: Flag, playerId: string) => {
-    // Use the imported question pop-up generator[cite: 5]
-    createQuestionPopup(container, flag.typeId, 30, (isCorrect: boolean, isTimeout: boolean) => {
-      const player = gameState.players.find(p => p.id === playerId);
-      if (!player) return;
+  // The question pop-up on screen: answerable on the answering player's client, read-only elsewhere.
+  // questionKey identifies the question it shows ("" when none).
+  let questionPopup: QuestionPopup | null = null;
+  let questionKey = "";
+  const keyOf = (question: ActiveQuestion | null) => (question ? JSON.stringify(question) : "");
 
-      if (isCorrect) {
-        playSound("collect");
-        updatePlayer(playerId, { score: player.score + 2, steps: player.steps + 3 });
-        showCorrectPopup(5000, () => {
-          // Player continues their turn
-          updateUI();
-          drawGame();
-        });
-      } else {
-        playSound("wrongAnswer");
-        updatePlayer(playerId, { steps: 0 });
-        showWrongPopup(() => {
-          handleTurnAdvance();
-        });
-      }
+  const closeQuestionPopup = () => {
+    questionPopup?.close();
+    questionPopup = null;
+    questionKey = "";
+  };
+
+  /** answerIndex: original index of the chosen answer, null = no answer (time ran out) */
+  const resolveAnswer = (playerId: string, question: ActiveQuestion | null, answerIndex: number | null) => {
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    const isCorrect = answerIndex === CORRECT_ANSWER_INDEX;
+    const answerText = question && answerIndex !== null ? getAnswerText(question, answerIndex) : null;
+    gameState.answerCount += 1;
+    gameState.lastAnswerCorrect = isCorrect;
+    gameState.lastAnswerText = answerText;
+    gameState.question = null;
+    gameState.phase = "move";
+    if (isCorrect) {
+      playSound("collect");
+      updatePlayer(playerId, { score: player.score + 2, steps: player.steps + 3 });
+      commit();
+      showAnswerResult(true, { answerText }, () => {
+        // Player continues their turn
+        updateUI();
+        drawGame();
+      });
+    } else {
+      playSound("wrongAnswer");
+      updatePlayer(playerId, { steps: 0 });
+      commit();
+      showAnswerResult(false, { answerText }, () => {
+        handleTurnAdvance();
+      });
+    }
+  };
+
+  const handleQuestionTrigger = (flag: Flag, playerId: string) => {
+    // Pick the question here and save it, so every player sees the same one
+    const question = pickQuestion(flag.typeId, 30);
+    if (!question) {
+      // No question available for this flag: treat as not answered
+      resolveAnswer(playerId, null, null);
+      return;
+    }
+    gameState.phase = "question";
+    gameState.question = question;
+    commit();
+    questionKey = keyOf(question);
+    // Use the imported question pop-up generator[cite: 5]
+    questionPopup = createQuestionPopup(container, question, (answerIndex) => {
+      questionPopup = null;
+      questionKey = "";
+      resolveAnswer(playerId, question, answerIndex);
     });
   };
 
   // 5. Connect Input Controller and Movement Logic
-  const getCurrentPlayer = () => gameState.players.find(p => p.isCurrentTurn);
+  // Input only reaches the game on this client's own turn, while walking
+  const getLocalMovingPlayer = () =>
+    isLocalTurn() && gameState.phase === "move" ? getCurrentPlayer() : undefined;
 
   const cleanupInput = setupInputController(
     canvas,
     cellSize,
     BOARD_PADDING,
     gameState.maze,
-    getCurrentPlayer,
+    getLocalMovingPlayer,
     (targetX: number, targetY: number) => {
-      const player = getCurrentPlayer();
+      const player = getLocalMovingPlayer();
       if (player && player.steps > 0) playSound("footstep");
 
       // Execute the move logic using the imported function[cite: 4]
@@ -345,30 +473,128 @@ export function renderGamePlayScreen(
         targetY,
         gameState,
         handleQuestionTrigger,
-        showVictoryPopup,
+        finishGame,
         handleTurnAdvance,
         (id, updates) => {
           updatePlayer(id, updates);
-          updateUI();
-          drawGame();
+          commit();
         }
       );
     },
     () => {
       // Only a real attempt counts: ignore key presses while waiting for the dice
-      const player = getCurrentPlayer();
+      const player = getLocalMovingPlayer();
       if (player && player.steps > 0) playSound("damageTaken");
     }
   ); //[cite: 3]
 
+  // 6. State saved by another player: take it over and play what happened.
+  // Our own saves come back here too; they match gameState, so nothing is replayed.
+  const applyRemote = (next: SyncedGameState) => {
+    const before = getCurrentPlayer();
+    const prev = {
+      currentId: before?.id,
+      x: before?.x,
+      y: before?.y,
+      phase: gameState.phase,
+      rollCount: gameState.rollCount,
+      lastRoll: gameState.lastRoll,
+      answerCount: gameState.answerCount,
+    };
+
+    // Keep the player objects (matched by id) so nothing holding one goes stale
+    gameState.players = next.players.map((p) =>
+      Object.assign(gameState.players.find((old) => old.id === p.id) ?? ({} as Player), p)
+    );
+    gameState.phase = next.phase;
+    gameState.rollCount = next.rollCount;
+    gameState.lastRoll = next.lastRoll;
+    gameState.answerCount = next.answerCount;
+    gameState.lastAnswerCorrect = next.lastAnswerCorrect;
+    gameState.lastAnswerText = next.lastAnswerText;
+    gameState.question = next.question;
+    gameState.winnerId = next.winnerId;
+
+    const current = getCurrentPlayer();
+    updateUI();
+    drawGame();
+
+    if (gameState.phase === "finished") {
+      if (prev.phase !== "finished") {
+        spectatorDice?.close();
+        spectatorDice = null;
+        closeQuestionPopup();
+        showVictoryPopup();
+      }
+      return;
+    }
+
+    if (current?.id !== prev.currentId) {
+      playSound("changePlayer");
+      openDiceForCurrentPlayer();
+    } else if (current && (current.x !== prev.x || current.y !== prev.y)) {
+      playSound("footstep");
+    }
+
+    if (gameState.rollCount > prev.rollCount) spectatorDice?.startRolling();
+    if (gameState.lastRoll > 0 && (gameState.lastRoll !== prev.lastRoll || gameState.rollCount !== prev.rollCount)) {
+      spectatorDice?.showResult(gameState.lastRoll);
+      spectatorDice = null;
+    }
+
+    // Someone else's question: show it read-only; close it once it's answered
+    const nextQuestionKey = keyOf(gameState.question);
+    if (nextQuestionKey !== questionKey) {
+      closeQuestionPopup();
+      if (gameState.question && !isLocalTurn()) {
+        questionPopup = createQuestionPopup(container, gameState.question);
+        questionKey = nextQuestionKey;
+      }
+    }
+
+    if (gameState.answerCount > prev.answerCount) {
+      const details: AnswerDetails = { answerText: gameState.lastAnswerText, playerName: before?.name ?? current?.name };
+      playSound(gameState.lastAnswerCorrect ? "collect" : "wrongAnswer");
+      showAnswerResult(gameState.lastAnswerCorrect, details, () => {});
+    }
+  };
+
+  const removePlayers = (playerIds: string[]) => {
+    const current = getCurrentPlayer();
+    const currentIndex = current ? gameState.players.indexOf(current) : -1;
+    gameState.players = gameState.players.filter((p) => !playerIds.includes(p.id));
+    if (gameState.players.length === 0) return;
+
+    if (current && playerIds.includes(current.id)) {
+      // It was their turn: hand it to whoever came after them
+      const next = gameState.players[currentIndex % gameState.players.length];
+      gameState.players.forEach((p) => (p.isCurrentTurn = p === next));
+      next.steps = 0;
+      gameState.phase = "roll";
+      gameState.lastRoll = 0;
+      gameState.question = null;
+      closeQuestionPopup();
+      commit();
+      playSound("changePlayer");
+      openDiceForCurrentPlayer();
+    } else {
+      commit();
+    }
+  };
+
   // Initial UI render (the animation loop keeps the maze redrawn, including once images load)
   updateUI();
   drawGame();
-  showDicePopup();
+  openDiceForCurrentPlayer();
 
-  // Cleanup for unmounting: remove input listeners and stop the animation loop
-  return () => {
-    cleanupInput();
-    cancelAnimationFrame(frameId);
+  return {
+    cleanup: () => {
+      cleanupInput();
+      cancelAnimationFrame(frameId);
+      spectatorDice?.close();
+      closeQuestionPopup();
+    },
+    applyRemote,
+    removePlayers,
   };
 }

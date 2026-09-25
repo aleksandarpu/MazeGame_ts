@@ -8,4 +8,5 @@ export type Player = {
   isCurrentTurn: boolean;
   steps: number; // Number of steps the player can take in their turn
   score: number; // Player's score, can be used for tracking progress or achievements
+  isMock: boolean; // Fake player of a mock room; its turns are played by the first real player
 };

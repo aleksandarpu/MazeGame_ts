@@ -44,6 +44,11 @@ for (const [flagType, file] of Object.entries(questionFiles)) {
   questionBanks.set(Number(flagType), questions);
 }
 
+/** The question with this `ordNum` (1-based) for the flag type, or null. */
+export function getQuestion(flagType: number, ordNum: number): Question | null {
+  return questionBanks.get(flagType)?.[ordNum - 1] ?? null;
+}
+
 /**
  * Retrieves a random question for the specified flag type.
  */

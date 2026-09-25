@@ -7,13 +7,14 @@ import { getDatabase } from "firebase/database";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyD4D_8Vyvk8VqFclkvKzj71WJyOFQrO",               // Retrieve this from your Firebase Console Project Settings
+  apiKey: "AIzaSyD4D_8Vyvk8VqFclkvKzj71WJyOFQrO-iY",               // Retrieve this from your Firebase Console Project Settings
   authDomain: "mayegama-ts.firebaseapp.com",
   projectId: "mayegama-ts",
   storageBucket: "mayegama-ts.firebasestorage.app",
   messagingSenderId: "1083188534909",
   appId: "1:1083188534909:web:5562d3b05b8f547c07db14",                 // Retrieve this from your Firebase Console Project Settings
-  databaseURL: "https://mayegama-ts-default-rtdb.firebaseio.com"
+  databaseURL: "https://mayegama-ts-default-rtdb.firebaseio.com",
+  measurementId: "G-8YZDFT2H0L"
 };
 
 // Initialize Firebase
