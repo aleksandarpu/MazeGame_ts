@@ -16,6 +16,8 @@ Browser-based, turn-based multiplayer maze quiz game written in TypeScript with 
 
 There is no test runner or linter configured.
 
+**Question editor** — `tools/question-editor/question_editor.py` is a separate Python 3 / Tkinter desktop app (no dependencies) for editing `assets/data/*.json`: `python tools/question-editor/question_editor.py [file]`. On the left it lists each question with its answers; on the right it edits the selected one. It can create a new file, add and delete questions, add, delete and reorder answers, and edit the group name. It won't save a file without a group name or without questions. It keeps the files' formatting (4-space indent, raw UTF-8, CRLF), so an unedited save is byte-identical. It relies on the same convention as the game: the first answer is the correct one. See its README.
+
 ## Architecture
 
 **Entry / router — `src/index.ts`.** Holds a small global `appState` and a chain of `navigateTo*` functions: Login → Lobby → Game Room → Game Play. Each screen module exports a `render*Screen(container, ...data, ...callbacks)` function that wipes `#app-container` and builds its DOM with inline styles; navigation happens through the callbacks. Lobby/room data and the second player are currently **mocks** with comments marking where Firebase (Firestore `onSnapshot`/`addDoc`/`updateDoc`) calls should go.
