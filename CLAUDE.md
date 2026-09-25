@@ -35,7 +35,7 @@ There is no test runner or linter configured.
 
 **Questions — work in progress.**
 - `question-pop-up.ts` currently shows a hard-coded mockup question, not data from `assets/data`.
-- `questions.ts` loads `questions_type{1..4}.json` via Node `fs`, which won't run in the browser, and its expected shape (`questionText`, `answers`) doesn't match the real files in `assets/data/` (`{ Group, Questions: [{ Question, Answers }] }`, four files: `gramatika`, `jezik`, `pravopis`, `sluzba`). The first entry in `Answers` appears to be the correct one. Flag `typeId` 1–4 is meant to map to these four groups, and `assets/images/question_{1..4}.png` are the matching flag icons.
+- `questions.ts` imports the four `assets/data/*.json` files statically (Vite bundles them; `resolveJsonModule` is on). File format: `{ Group, Questions: [{ Question, Answers }] }`. Flag `typeId` maps to files as 1 `gramatika`, 2 `jezik`, 3 `pravopis`, 4 `sluzba`. `getRandomQuestion(typeId)` returns `{ ordNum, group, questionText, answers }`. It strips stray U+FEFF characters and normalizes line endings. `questionText` contains `\n` line breaks, so display it with `textContent` + `white-space: pre-line`, not `innerHTML`. `assets/images/question_{1..4}.png` are the matching flag icons.
 - `victory-pop-up.ts` exists but `index.ts`'s `showVictoryPopup` is still a `console.log` stub.
 
 **Firebase** — `firebase_init.ts` initializes Firestore and the Realtime Database (RTDB intended for presence via `onDisconnect`). It isn't imported by the app flow yet.
@@ -43,5 +43,4 @@ There is no test runner or linter configured.
 ## Quirks
 
 - Vite is the only bundler; TypeScript never emits files. Import static files from `assets/` through ES imports (e.g. `import url from "../assets/images/player1.png"`, or import the JSON directly) so Vite fingerprints them and includes them in the build. Plain string paths to `assets/` won't be copied into `dist/`.
-- `questions.ts` imports Node `fs`/`path`. That's harmless only while nothing in the `index.ts` import graph imports it.
 - `playful_dice_roller (3).html` and `test_question_pop-up.html` are standalone UI prototypes, not part of the app.

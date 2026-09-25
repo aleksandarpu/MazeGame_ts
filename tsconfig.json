@@ -4,6 +4,7 @@
     "lib": ["ES2022", "DOM", "ESNext.Temporal"], /* Include Temporal type declarations used by Firebase */
     "module": "ESNext",                        /* Specify module code generation */
     "moduleResolution": "Bundler",
+    "resolveJsonModule": true,                   /* Allow importing assets/data/*.json */
     "noEmit": true,                              /* Type-check only; Vite does the bundling */
     "isolatedModules": true,                     /* Vite/esbuild compiles each file on its own */
     "types": ["node"],                             /* Enable Node.js module typings */
