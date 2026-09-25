@@ -1,3 +1,5 @@
+import { playSound } from "./sounds";
+
 export type PlayerStats = {
   id: string;
   name: string;
@@ -10,6 +12,8 @@ export function showVictoryPopup(
   players: PlayerStats[],
   onReturnToLobby: () => void
 ) {
+  playSound("winning");
+
   // Determine the winner based on the highest score, regardless of who finished
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
   const winner = sortedPlayers[0];

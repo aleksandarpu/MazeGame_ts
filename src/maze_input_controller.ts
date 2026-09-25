@@ -6,7 +6,8 @@ export function setupInputController(
   cellSize: number,
   maze: Cell[][],
   getCurrentPlayer: () => Player | undefined,
-  onPlayerMove: (newX: number, newY: number) => void
+  onPlayerMove: (newX: number, newY: number) => void,
+  onBlockedMove: () => void = () => {} // Move hit a wall or the maze edge
 ) {
   // Helper to validate if a move between two neighboring cells is unobstructed
   const isValidMove = (currX: number, currY: number, targetX: number, targetY: number): boolean => {
@@ -41,6 +42,8 @@ export function setupInputController(
 
     if (isValidMove(player.x, player.y, targetX, targetY)) {
       onPlayerMove(targetX, targetY);
+    } else {
+      onBlockedMove();
     }
   };
 

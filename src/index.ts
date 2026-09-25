@@ -6,6 +6,7 @@ import { GameState } from "./GameState";
 import { generateBraidedMaze } from "./maze_generator";
 import { placeFlagsInMaze } from "./place_flags_in_maze";
 import { showResultPopup } from "./answer-pop-up";
+import { showVictoryPopup as renderVictoryPopup } from "./victory-pop-up";
 
 //const path = require('path');
 // Inside your server code, pointing to root index.html from dist/
@@ -143,8 +144,8 @@ function navigateToGamePlay() {
   };
 
   const showVictoryPopup = () => {
-    console.log("Game Over! Triggering victory popup...");
-    // Render victory popup overlay
+    cleanupGameInputs();
+    renderVictoryPopup(appContainer, initialGameState.players, navigateToLobby);
   };
 
   // Mount the game screen

@@ -36,7 +36,9 @@ There is no test runner or linter configured.
 **Questions.**
 - `createQuestionPopup(container, flagTypeId, timeLimit, onResolve)` in `question-pop-up.ts` picks a random question for the flag's type. It builds the text from DOM text nodes, never `innerHTML`: `\n` becomes `<br>`, and text between a pair of `*` is shown in red (a line with an unpaired `*` is shown as-is). It assumes answer index 0 in the data is the correct one and shuffles the answers before showing them.
 - `questions.ts` imports the four `assets/data/*.json` files statically (Vite bundles them; `resolveJsonModule` is on). File format: `{ Group, Questions: [{ Question, Answers }] }`. Flag `typeId` maps to files as 1 `gramatika`, 2 `jezik`, 3 `pravopis`, 4 `sluzba`. `getRandomQuestion(typeId)` returns `{ ordNum, group, questionText, answers }`. It strips stray U+FEFF characters and normalizes line endings. `questionText` contains `\n` line breaks, so display it with `textContent` + `white-space: pre-line`, not `innerHTML`. `assets/images/question_{1..4}.png` are the matching flag icons.
-- `victory-pop-up.ts` exists but `index.ts`'s `showVictoryPopup` is still a `console.log` stub.
+- Reaching the finish calls `index.ts`'s `showVictoryPopup`, which removes the game's input listeners and shows `victory-pop-up.ts` (its button goes back to the lobby).
+
+**Sounds** — `sounds.ts` preloads `assets/sound/*.wav`; `playSound(name)` plays a copy each time, so sounds can overlap. Triggers: footstep (valid move), damageTaken (move blocked by a wall or the edge while the player has steps), collect / wrongAnswer (question result, including timeout), winning (inside the victory pop-up), changePlayer (in `game.ts`'s `handleTurnAdvance`, which waits `TURN_CHANGE_DELAY_MS` before the next player's dice).
 
 **Firebase** — `firebase_init.ts` initializes Firestore and the Realtime Database (RTDB intended for presence via `onDisconnect`). It isn't imported by the app flow yet.
 

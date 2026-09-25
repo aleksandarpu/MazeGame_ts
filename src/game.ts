@@ -3,6 +3,7 @@ import { setupInputController } from "./maze_input_controller";
 import { executePlayerMove } from "./player_move"; 
 import { createQuestionPopup } from "./question-pop-up"; 
 import { showDiceRollPopup } from "./dice-pop-up";
+import { playSound } from "./sounds";
 import { GameState } from "./GameState";
 import { Player } from "./player";
 import { getPlayerImageUrl, imagesReady, renderGame } from "./render_maze";
@@ -191,11 +192,21 @@ export function renderGamePlayScreen(
     }
   };
 
+  // Pause after the last step before handing the turn (and dice) to the next player
+  const TURN_CHANGE_DELAY_MS = 800;
+  let turnChangePending = false;
+
   const handleTurnAdvance = () => {
-    advanceTurn();
-    updateUI();
-    drawGame();
-    showDicePopup();
+    if (turnChangePending) return;
+    turnChangePending = true;
+    setTimeout(() => {
+      turnChangePending = false;
+      playSound("changePlayer");
+      advanceTurn();
+      updateUI();
+      drawGame();
+      showDicePopup();
+    }, TURN_CHANGE_DELAY_MS);
   };
 
   // 4. Question Pop-up Handler Hook
@@ -206,6 +217,7 @@ export function renderGamePlayScreen(
       if (!player) return;
 
       if (isCorrect) {
+        playSound("collect");
         updatePlayer(playerId, { score: player.score + 2, steps: player.steps + 3 });
         showCorrectPopup(5000, () => {
           // Player continues their turn
@@ -213,6 +225,7 @@ export function renderGamePlayScreen(
           drawGame();
         });
       } else {
+        playSound("wrongAnswer");
         updatePlayer(playerId, { steps: 0 });
         showWrongPopup(() => {
           handleTurnAdvance();
@@ -230,6 +243,9 @@ export function renderGamePlayScreen(
     gameState.maze,
     getCurrentPlayer,
     (targetX: number, targetY: number) => {
+      const player = getCurrentPlayer();
+      if (player && player.steps > 0) playSound("footstep");
+
       // Execute the move logic using the imported function[cite: 4]
       executePlayerMove(
         targetX,
@@ -244,6 +260,11 @@ export function renderGamePlayScreen(
           drawGame();
         }
       );
+    },
+    () => {
+      // Only a real attempt counts: ignore key presses while waiting for the dice
+      const player = getCurrentPlayer();
+      if (player && player.steps > 0) playSound("damageTaken");
     }
   ); //[cite: 3]
 
