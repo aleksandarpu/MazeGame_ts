@@ -37,6 +37,14 @@ The lobby also has two practice rooms, **Alpha Room** and **Beta Room**. Their p
 | `npm run preview` | Serves the built `dist/` locally |
 | `npx tsc` | Type-check only |
 
+## Deploying to GitHub Pages
+
+The browser can't run the TypeScript sources directly, so the site has to be built first. The workflow in [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) builds the game and publishes `dist/` on every push to `main`.
+
+One-time setup: in the repository's **Settings → Pages → Build and deployment**, set **Source** to **GitHub Actions**. After the next push (or a manual run from the **Actions** tab), the game is at `https://<user>.github.io/<repo>/`.
+
+The build uses relative paths (`base: "./"` in [`vite.config.ts`](vite.config.ts)), so it works in any sub-folder.
+
 ## Firebase setup
 
 The game uses two Firebase services:

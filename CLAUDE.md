@@ -12,6 +12,7 @@ Browser-based, turn-based multiplayer maze quiz game written in TypeScript with 
 - `npm run build` — `tsc` (type-check only, `noEmit`) then `vite build` → bundled output in `dist/` (`dist/index.html` + hashed files in `dist/assets/`).
 - `npm run preview` — serve the built `dist/` locally.
 - `npx tsc` — type-check only.
+- Deploy: `.github/workflows/deploy.yml` builds and publishes `dist/` to GitHub Pages on every push to `main` (repo Settings → Pages → Source must be "GitHub Actions"). `vite.config.ts` sets `base: "./"` so the build works under `/<repo>/`; keep asset references in `index.html` relative (e.g. `./favicon.ico`) so Vite bundles them. Serving the repo root directly can't work: `index.html` loads `/src/index.ts`, which browsers can't run.
 - `node server.js` — old minimal HTTP server on port 3000 that returns `index.html` for every request; it doesn't serve JS or other files, so use `npm run preview` instead.
 
 There is no test runner or linter configured.
