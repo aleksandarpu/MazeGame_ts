@@ -33,8 +33,8 @@ There is no test runner or linter configured.
 
 **Maze** — `maze_generator.ts` builds a grid via recursive-backtracker DFS starting at the start cell, then "braids" it by knocking out one wall of every dead end (so there are loops). `place_flags_in_maze.ts` attaches `Flag { typeId }` objects directly onto cells (4 types × N each), excluding start and finish.
 
-**Questions — work in progress.**
-- `question-pop-up.ts` currently shows a hard-coded mockup question, not data from `assets/data`.
+**Questions.**
+- `createQuestionPopup(container, flagTypeId, timeLimit, onResolve)` in `question-pop-up.ts` picks a random question for the flag's type. It builds the text from DOM text nodes, never `innerHTML`: `\n` becomes `<br>`, and text between a pair of `*` is shown in red (a line with an unpaired `*` is shown as-is). It assumes answer index 0 in the data is the correct one and shuffles the answers before showing them.
 - `questions.ts` imports the four `assets/data/*.json` files statically (Vite bundles them; `resolveJsonModule` is on). File format: `{ Group, Questions: [{ Question, Answers }] }`. Flag `typeId` maps to files as 1 `gramatika`, 2 `jezik`, 3 `pravopis`, 4 `sluzba`. `getRandomQuestion(typeId)` returns `{ ordNum, group, questionText, answers }`. It strips stray U+FEFF characters and normalizes line endings. `questionText` contains `\n` line breaks, so display it with `textContent` + `white-space: pre-line`, not `innerHTML`. `assets/images/question_{1..4}.png` are the matching flag icons.
 - `victory-pop-up.ts` exists but `index.ts`'s `showVictoryPopup` is still a `console.log` stub.
 

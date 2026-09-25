@@ -1,20 +1,50 @@
-export type QuestionMockup = {
-  questionText: string;
-  answers: string[];
-  correctIndex: number;
-};
+import { getRandomQuestion } from "./questions";
+
+// The correct answer is always listed first in the question files
+const CORRECT_ANSWER_INDEX = 0;
+
+/**
+ * Fills `target` with `text`, turning "\n" into line breaks and
+ * *marked* words into red spans. Uses text nodes, so the text is never parsed as HTML.
+ */
+function appendFormattedText(target: HTMLElement, text: string) {
+  text.split("\n").forEach((line, lineIndex) => {
+    if (lineIndex > 0) target.appendChild(document.createElement("br"));
+
+    const parts = line.split("*");
+    // An odd part count means every "*" is paired; otherwise leave the text as-is
+    if (parts.length % 2 === 0) {
+      target.appendChild(document.createTextNode(line));
+      return;
+    }
+
+    parts.forEach((part, partIndex) => {
+      if (!part) return;
+      if (partIndex % 2 === 1) {
+        const marked = document.createElement("span");
+        marked.style.color = "red";
+        marked.textContent = part;
+        target.appendChild(marked);
+      } else {
+        target.appendChild(document.createTextNode(part));
+      }
+    });
+  });
+}
 
 export function createQuestionPopup(
   container: HTMLElement,
+  flagTypeId: number,
   timeLimitSeconds: number = 30,
   onResolve: (isCorrect: boolean, isTimeout: boolean) => void
 ) {
-  // Mockup data based on the specification[cite: 1]
-  const mockup: QuestionMockup = {
-    questionText: "The name of <i>Capitol</i> city is",
-    answers: ["Washington D.C.", "New York", "Los Angeles", "Chicago"],
-    correctIndex: 0,
-  };
+  const question = getRandomQuestion(flagTypeId);
+  if (!question) {
+    // No question available for this flag: treat as not answered
+    onResolve(false, false);
+    return;
+  }
+  const timeLimit = question.time ?? timeLimitSeconds;
 
   // 1. Create Overlay Container
   const overlay = document.createElement("div");
@@ -56,7 +86,7 @@ export function createQuestionPopup(
     fontWeight: "bold",
     color: "green", // Starts green
   });
-  timerEl.innerText = timeLimitSeconds.toString();
+  timerEl.innerText = timeLimit.toString();
 
   // 4. Create Question Text with Red Word Formatting
   const questionEl = document.createElement("div");
@@ -67,10 +97,9 @@ export function createQuestionPopup(
     paddingBottom: "20px",
     borderBottom: "2px solid #ccc", // Separator between question and answers
   });
-  
-  // Replace <i> tags with a span styled in red
-  const formattedText = mockup.questionText.replace(/<i>(.*?)<\/i>/g, '<span style="color: red;">$1</span>');
-  questionEl.innerHTML = formattedText;
+
+  // Multiline question with *marked* words shown in red
+  appendFormattedText(questionEl, question.questionText);
 
   // 5. Create Answers Container
   const answersContainer = document.createElement("div");
@@ -84,6 +113,7 @@ export function createQuestionPopup(
 
   const closePopup = (isCorrect: boolean, isTimeout: boolean = false) => {
     clearInterval(timerInterval);
+    window.removeEventListener("keydown", keydownHandler);
     container.removeChild(overlay);
     // Remove injected style
     const styleTag = document.getElementById("answer-hover-styles");
@@ -117,14 +147,15 @@ export function createQuestionPopup(
 
   // 7. Render Randomized Answers
   // Map to objects to keep track of the original correct index before shuffling
-  const shuffledAnswers = mockup.answers
-    .map((text, index) => ({ text, isCorrect: index === mockup.correctIndex }))
+  const shuffledAnswers = question.answers
+    .map((text, index) => ({ text, isCorrect: index === CORRECT_ANSWER_INDEX }))
     .sort(() => Math.random() - 0.5);
 
   shuffledAnswers.forEach((ans, index) => {
     const btn = document.createElement("button");
     btn.className = "answer-btn";
-    btn.innerText = `${index + 1}. ${ans.text}`;
+    btn.appendChild(document.createTextNode(`${index + 1}. `));
+    appendFormattedText(btn, ans.text);
     
     btn.onclick = () => {
       closePopup(ans.isCorrect);
@@ -140,7 +171,7 @@ export function createQuestionPopup(
   container.appendChild(overlay);
 
   // 8. Timer Logic
-  let timeLeft = timeLimitSeconds;
+  let timeLeft = timeLimit;
   timerInterval = window.setInterval(() => {
     timeLeft--;
     timerEl.innerText = timeLeft.toString();
@@ -156,12 +187,11 @@ export function createQuestionPopup(
   }, 1000);
 
   // 9. Keyboard controls (1-4 keys)[cite: 1]
-  const keydownHandler = (e: KeyboardEvent) => {
+  function keydownHandler(e: KeyboardEvent) {
     const keyNum = parseInt(e.key);
     if (keyNum >= 1 && keyNum <= 4 && keyNum <= shuffledAnswers.length) {
-      window.removeEventListener("keydown", keydownHandler);
       closePopup(shuffledAnswers[keyNum - 1].isCorrect);
     }
-  };
+  }
   window.addEventListener("keydown", keydownHandler);
 }

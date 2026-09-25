@@ -202,7 +202,7 @@ export function renderGamePlayScreen(
   // 4. Question Pop-up Handler Hook
   const handleQuestionTrigger = (flag: Flag, playerId: string) => {
     // Use the imported question pop-up generator[cite: 5]
-    createQuestionPopup(container, 30, (isCorrect: boolean, isTimeout: boolean) => {
+    createQuestionPopup(container, flag.typeId, 30, (isCorrect: boolean, isTimeout: boolean) => {
       const player = gameState.players.find(p => p.id === playerId);
       if (!player) return;
 
