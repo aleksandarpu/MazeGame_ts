@@ -27,7 +27,7 @@ There is no test runner or linter configured.
 2. `maze_input_controller.ts` listens for arrow keys / canvas clicks, validates adjacency against `cell.walls`, and calls back with a target cell.
 3. `player_move.ts` (`executePlayerMove`) decrements steps, checks victory, checks `cell.flag` (suspends the turn and opens a question), or advances the turn when steps hit 0.
 4. Question outcome: correct → +2 score, +3 steps, turn continues; wrong/timeout → steps = 0, next player. This logic lives inline in `game.ts`; `question_resolver.ts` is a duplicate, currently unused version of it.
-5. `render_maze.ts` redraws the full canvas (`cellSize` = 40) after every state change; the scoreboard/current-player box is re-rendered via `innerHTML`.
+5. `render_maze.ts` redraws the full canvas (`cellSize` = 40) after every state change; the scoreboard/current-player box is re-rendered via `innerHTML`. Flags are drawn with `assets/images/question_{typeId}.png`, which load asynchronously. Until they load, a colored square is drawn instead, and `game.ts` redraws once the `flagImagesReady` promise resolves.
 
 `renderGamePlayScreen` returns a cleanup function that removes the global keydown listener — call it when leaving the game screen.
 

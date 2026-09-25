@@ -7,7 +7,7 @@
     "resolveJsonModule": true,                   /* Allow importing assets/data/*.json */
     "noEmit": true,                              /* Type-check only; Vite does the bundling */
     "isolatedModules": true,                     /* Vite/esbuild compiles each file on its own */
-    "types": ["node"],                             /* Enable Node.js module typings */
+    "types": ["node", "vite/client"],            /* Node typings + Vite asset imports (*.png) */
     "strict": true,                              /* Enable all strict type-checking options */
     "esModuleInterop": true                      /* Emit additional JavaScript to ease support for importing CommonJS modules */
   },

@@ -1,5 +1,37 @@
 import { Cell } from "./maze_generator";
 import { Player } from "./player";
+import question1Url from "../assets/images/question_1.png";
+import question2Url from "../assets/images/question_2.png";
+import question3Url from "../assets/images/question_3.png";
+import question4Url from "../assets/images/question_4.png";
+
+// Flag typeId (1 to 4) -> flag image
+const flagImages: Record<number, HTMLImageElement> = {};
+const flagImageUrls: Record<number, string> = {
+  1: question1Url,
+  2: question2Url,
+  3: question3Url,
+  4: question4Url,
+};
+
+/**
+ * Resolves once every flag image has loaded (or failed to load).
+ * Redraw the maze after this so flags show their images.
+ */
+export const flagImagesReady: Promise<void> = Promise.all(
+  Object.entries(flagImageUrls).map(([typeId, url]) => {
+    const image = new Image();
+    flagImages[Number(typeId)] = image;
+    return new Promise<void>((resolve) => {
+      image.onload = () => resolve();
+      image.onerror = () => {
+        console.error(`Failed to load flag image for type ${typeId}: ${url}`);
+        resolve();
+      };
+      image.src = url;
+    });
+  })
+).then(() => undefined);
 
 export function renderGame(
   ctx: CanvasRenderingContext2D,
@@ -40,14 +72,21 @@ export function renderGame(
 
       // Draw Flags
       if (cell.flag) {
-        // Map flag type to a distinct color
-        const flagColors = ["#FF5733", "#33FF57", "#3357FF", "#F033FF"];
-        ctx.fillStyle = flagColors[(cell.flag.typeId - 1) % flagColors.length];
-        
-        // Draw a smaller square centered in the cell to represent the flag
-        const flagSize = cellSize * 0.4;
-        const offset = (cellSize - flagSize) / 2;
-        ctx.fillRect(pixelX + offset, pixelY + offset, flagSize, flagSize);
+        const image = flagImages[cell.flag.typeId];
+        if (image && image.complete && image.naturalWidth > 0) {
+          // Draw the flag image centered in the cell
+          const flagSize = cellSize * 0.8;
+          const offset = (cellSize - flagSize) / 2;
+          ctx.drawImage(image, pixelX + offset, pixelY + offset, flagSize, flagSize);
+        } else {
+          // Fallback until the image loads: a distinct color per flag type
+          const flagColors = ["#FF5733", "#33FF57", "#3357FF", "#F033FF"];
+          ctx.fillStyle = flagColors[(cell.flag.typeId - 1) % flagColors.length];
+
+          const flagSize = cellSize * 0.4;
+          const offset = (cellSize - flagSize) / 2;
+          ctx.fillRect(pixelX + offset, pixelY + offset, flagSize, flagSize);
+        }
       }
 
       // Draw Walls
