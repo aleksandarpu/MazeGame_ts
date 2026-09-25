@@ -7,6 +7,7 @@ import { generateBraidedMaze } from "./maze_generator";
 import { placeFlagsInMaze } from "./place_flags_in_maze";
 import { showResultPopup } from "./answer-pop-up";
 import { showVictoryPopup as renderVictoryPopup } from "./victory-pop-up";
+import { getClientUserId, startPresence } from "./presence";
 
 //const path = require('path');
 // Inside your server code, pointing to root index.html from dist/
@@ -31,11 +32,11 @@ const appState = {
  */
 function navigateToLogin() {
   renderLoginScreen(appContainer, (playerName: string) => {
-    // In a real app, you would authenticate anonymously with Firebase here
-    // and get a real UID.
-    appState.currentUserId = `uid_${Math.random().toString(36).substr(2, 9)}`;
+    appState.currentUserId = getClientUserId();
     appState.currentUserName = playerName;
-    
+    // Track the connection in the Realtime Database (status/{userId})
+    startPresence(appState.currentUserId, playerName);
+
     // After successful login go to lobby screen[cite: 1]
     navigateToLobby();
   });
