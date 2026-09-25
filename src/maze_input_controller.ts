@@ -76,9 +76,12 @@ export function setupInputController(
     if (!player || !player.isCurrentTurn) return;
 
     // Calculate mouse click coordinates relative to the canvas
+    // (skip the border and undo CSS scaling so cells line up on any screen size)
     const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    const scaleX = canvas.width / canvas.clientWidth;
+    const scaleY = canvas.height / canvas.clientHeight;
+    const clickX = (e.clientX - rect.left - canvas.clientLeft) * scaleX;
+    const clickY = (e.clientY - rect.top - canvas.clientTop) * scaleY;
 
     // Convert pixel coordinates to grid indices
     const targetX = Math.floor(clickX / cellSize);

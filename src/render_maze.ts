@@ -30,6 +30,11 @@ const playerImageUrls: Record<number, string> = {
   6: player6Url,
 };
 
+/** URL of a player's sprite image, for use outside the canvas (e.g. <img src>) */
+export function getPlayerImageUrl(spriteId: number): string | undefined {
+  return playerImageUrls[spriteId];
+}
+
 const flagImages: Record<number, HTMLImageElement> = {};
 const playerImages: Record<number, HTMLImageElement> = {};
 

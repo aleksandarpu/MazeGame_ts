@@ -5,7 +5,89 @@ import { createQuestionPopup } from "./question-pop-up";
 import { showDiceRollPopup } from "./dice-pop-up";
 import { GameState } from "./GameState";
 import { Player } from "./player";
-import { imagesReady, renderGame } from "./render_maze";
+import { getPlayerImageUrl, imagesReady, renderGame } from "./render_maze";
+
+/** Player's sprite as an <img> scaled to fit a size x size box, or a color dot if there is no sprite */
+function playerIconHtml(player: Player, size: number, extraStyle: string = ""): string {
+  const url = getPlayerImageUrl(player.spriteId);
+  if (!url) {
+    return `<div style="width: ${size}px; height: ${size}px; background-color: ${player.color}; border-radius: 50%; ${extraStyle}"></div>`;
+  }
+  return `<img src="${url}" alt="" style="width: ${size}px; height: ${size}px; object-fit: contain; ${extraStyle}">`;
+}
+
+// Desktop: scoreboard next to the maze, same height. Mobile/tablet (<= 1024px): maze, current player, scoreboard stacked.
+function injectLayoutStyles() {
+  if (document.getElementById("game-layout-styles")) return;
+  const style = document.createElement("style");
+  style.id = "game-layout-styles";
+  style.textContent = `
+    .game-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 608px) minmax(250px, 350px);
+      grid-template-areas:
+        "maze    score"
+        "current .";
+      justify-content: center;
+      align-items: start;
+      gap: 20px;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .game-maze {
+      grid-area: maze;
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 4px solid #34495e;
+      border-radius: 8px;
+      background-color: #ecf0f1;
+      box-sizing: border-box;
+    }
+    .game-current {
+      grid-area: current;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px 20px;
+      background-color: #34495e;
+      padding: 15px;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+    .game-score {
+      grid-area: score;
+      align-self: stretch;
+      contain: size; /* don't let the list grow the row: match the maze height and scroll */
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background-color: #34495e;
+      padding: 20px;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+    @media (max-width: 1024px) {
+      .game-layout {
+        grid-template-columns: minmax(0, 608px);
+        grid-template-areas:
+          "maze"
+          "current"
+          "score";
+        padding: 12px;
+        gap: 12px;
+      }
+      .game-score {
+        align-self: auto;
+        contain: none;
+        overflow-y: visible;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 export function renderGamePlayScreen(
   container: HTMLElement,
@@ -19,65 +101,35 @@ export function renderGamePlayScreen(
   // Clear container and setup responsive wrapper
   container.innerHTML = "";
   Object.assign(container.style, {
-    display: "flex",
-    flexWrap: "wrap", // Allows the scoreboard to wrap to the bottom on small screens
-    justifyContent: "center",
-    alignItems: "flex-start",
-    gap: "20px",
-    padding: "20px",
     fontFamily: "Arial, sans-serif",
     backgroundColor: "#2c3e50",
     color: "#fff",
-    minHeight: "100vh",
+    height: "100%",
+    overflowY: "auto", // body doesn't scroll; the stacked mobile layout scrolls here
     boxSizing: "border-box",
   });
+  injectLayoutStyles();
 
-  // 1. Left Column: Maze Canvas and Current Player Box
-  const leftColumn = document.createElement("div");
-  leftColumn.style.display = "flex";
-  leftColumn.style.flexDirection = "column";
-  leftColumn.style.alignItems = "center";
-  leftColumn.style.gap = "15px";
+  const layout = document.createElement("div");
+  layout.className = "game-layout";
 
+  // 1. Maze Canvas (scales down on narrow screens, keeping its aspect ratio)
   const canvas = document.createElement("canvas");
+  canvas.className = "game-maze";
   const cellSize = 40;
   canvas.width = gameState.width * cellSize;
   canvas.height = gameState.maze.length * cellSize;
-  canvas.style.border = "4px solid #34495e";
-  canvas.style.backgroundColor = "#ecf0f1";
-  canvas.style.borderRadius = "8px";
 
+  // 2. Current Player Box (below the maze)
   const currentPlayerBox = document.createElement("div");
-  Object.assign(currentPlayerBox.style, {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    width: `${canvas.width}px`,
-    backgroundColor: "#34495e",
-    padding: "15px",
-    borderRadius: "8px",
-    boxSizing: "border-box",
-  });
+  currentPlayerBox.className = "game-current";
 
-  leftColumn.appendChild(canvas);
-  leftColumn.appendChild(currentPlayerBox);
-
-  // 2. Right Column: General Scoreboard
+  // 3. General Scoreboard (next to the maze on desktop, below the current player box on mobile/tablet)
   const scoreboardBox = document.createElement("div");
-  Object.assign(scoreboardBox.style, {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-    minWidth: "250px",
-    backgroundColor: "#34495e",
-    padding: "20px",
-    borderRadius: "8px",
-    flexGrow: "1",
-    maxWidth: "350px",
-  });
+  scoreboardBox.className = "game-score";
 
-  container.appendChild(leftColumn);
-  container.appendChild(scoreboardBox);
+  layout.append(canvas, scoreboardBox, currentPlayerBox);
+  container.appendChild(layout);
 
   const canvasContext = canvas.getContext("2d");
   if (!canvasContext) {
@@ -110,11 +162,12 @@ export function renderGamePlayScreen(
       const row = document.createElement("div");
       row.style.display = "flex";
       row.style.justifyContent = "space-between";
+      row.style.alignItems = "center";
       row.style.padding = "8px 0";
       row.style.borderBottom = "1px solid #456";
       row.innerHTML = `
         <span style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 16px; height: 16px; background-color: ${player.color}; border-radius: 50%;"></div>
+          ${playerIconHtml(player, 28)}
           ${player.name}
         </span>
         <span style="font-weight: bold;">${player.score} pts</span>
@@ -127,7 +180,7 @@ export function renderGamePlayScreen(
     if (currentPlayer) {
       currentPlayerBox.innerHTML = `
         <div style="display: flex; align-items: center; gap: 15px;">
-          <div style="width: 32px; height: 32px; background-color: ${currentPlayer.color}; border: 2px solid #fff; border-radius: 50%;"></div>
+          ${playerIconHtml(currentPlayer, 44, `padding: 3px; border: 3px solid ${currentPlayer.color}; border-radius: 50%; background-color: rgba(255, 255, 255, 0.85); box-sizing: content-box;`)}
           <div style="font-size: 20px; font-weight: bold;">${currentPlayer.name}</div>
         </div>
         <div style="display: flex; gap: 20px; font-size: 18px;">

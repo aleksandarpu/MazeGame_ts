@@ -68,6 +68,7 @@ export function createQuestionPopup(
   Object.assign(modal.style, {
     position: "relative",
     backgroundColor: "#fff",
+    color: "#2c3e50", // Don't inherit the game screen's white text
     padding: "30px",
     borderRadius: "10px",
     border: "4px solid #333", // Border around the pop-up
@@ -133,6 +134,8 @@ export function createQuestionPopup(
         padding: 12px;
         border-radius: 5px;
         font-size: 18px;
+        color: #2c3e50;
+        text-align: left;
         cursor: pointer;
         transition: all 0.2s ease;
       }
