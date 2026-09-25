@@ -123,8 +123,8 @@ function navigateToGamePlay() {
     width: 15,
     maze,
     players: [
-      { id: appState.currentUserId, name: appState.currentUserName, x: 0, y: 14, color: "#e74c3c", score: 0, steps: 0, isCurrentTurn: true },
-      { id: "uid_2", name: "Bob", x: 0, y: 14, color: "#3498db", score: 0, steps: 0, isCurrentTurn: false }
+      { id: appState.currentUserId, name: appState.currentUserName, x: 0, y: 14, color: "#e74c3c", spriteId: 1, score: 0, steps: 0, isCurrentTurn: true },
+      { id: "uid_2", name: "Bob", x: 0, y: 14, color: "#3498db", spriteId: 2, score: 0, steps: 0, isCurrentTurn: false }
     ]
   };
 

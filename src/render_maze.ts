@@ -5,8 +5,14 @@ import question2Url from "../assets/images/question_2.png";
 import question3Url from "../assets/images/question_3.png";
 import question4Url from "../assets/images/question_4.png";
 
+import player1Url from "../assets/images/player1.png";
+import player2Url from "../assets/images/player2.png";
+import player3Url from "../assets/images/player3.png";
+import player4Url from "../assets/images/player4.png";
+import player5Url from "../assets/images/player5.png";
+import player6Url from "../assets/images/player6.png";
+
 // Flag typeId (1 to 4) -> flag image
-const flagImages: Record<number, HTMLImageElement> = {};
 const flagImageUrls: Record<number, string> = {
   1: question1Url,
   2: question2Url,
@@ -14,24 +20,46 @@ const flagImageUrls: Record<number, string> = {
   4: question4Url,
 };
 
-/**
- * Resolves once every flag image has loaded (or failed to load).
- * Redraw the maze after this so flags show their images.
- */
-export const flagImagesReady: Promise<void> = Promise.all(
-  Object.entries(flagImageUrls).map(([typeId, url]) => {
+// Player spriteId (1 to 6) -> player image
+const playerImageUrls: Record<number, string> = {
+  1: player1Url,
+  2: player2Url,
+  3: player3Url,
+  4: player4Url,
+  5: player5Url,
+  6: player6Url,
+};
+
+const flagImages: Record<number, HTMLImageElement> = {};
+const playerImages: Record<number, HTMLImageElement> = {};
+
+function loadImages(urls: Record<number, string>, target: Record<number, HTMLImageElement>): Promise<void>[] {
+  return Object.entries(urls).map(([id, url]) => {
     const image = new Image();
-    flagImages[Number(typeId)] = image;
+    target[Number(id)] = image;
     return new Promise<void>((resolve) => {
       image.onload = () => resolve();
       image.onerror = () => {
-        console.error(`Failed to load flag image for type ${typeId}: ${url}`);
+        console.error(`Failed to load image ${url}`);
         resolve();
       };
       image.src = url;
     });
-  })
-).then(() => undefined);
+  });
+}
+
+/**
+ * Resolves once every flag and player image has loaded (or failed to load).
+ * Redraw the maze after this so flags and players show their images.
+ */
+export const imagesReady: Promise<void> = Promise.all([
+  ...loadImages(flagImageUrls, flagImages),
+  ...loadImages(playerImageUrls, playerImages),
+]).then(() => undefined);
+
+function isLoaded(image: HTMLImageElement | undefined): image is HTMLImageElement {
+  return !!image && image.complete && image.naturalWidth > 0;
+}
 
 export function renderGame(
   ctx: CanvasRenderingContext2D,
@@ -73,7 +101,7 @@ export function renderGame(
       // Draw Flags
       if (cell.flag) {
         const image = flagImages[cell.flag.typeId];
-        if (image && image.complete && image.naturalWidth > 0) {
+        if (isLoaded(image)) {
           // Draw the flag image centered in the cell
           const flagSize = cellSize * 0.8;
           const offset = (cellSize - flagSize) / 2;
@@ -120,24 +148,34 @@ export function renderGame(
   const currentPlayer = players.find(p => p.isCurrentTurn);
 
   const drawPlayer = (player: Player) => {
-    const pixelX = player.x * cellSize + cellSize / 2;
-    const pixelY = player.y * cellSize + cellSize / 2;
-    const radius = cellSize * 0.3;
+    const centerX = player.x * cellSize + cellSize / 2;
+    const centerY = player.y * cellSize + cellSize / 2;
 
-    ctx.beginPath();
-    ctx.arc(pixelX, pixelY, radius, 0, Math.PI * 2);
-    ctx.fillStyle = player.color;
-    ctx.fill();
-
-    // Highlight the current player with a stroke
+    // Highlight the current player with a ring in their color
     if (player.isCurrentTurn) {
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, cellSize * 0.46, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+      ctx.fill();
       ctx.lineWidth = 3;
-      ctx.strokeStyle = "#FFF";
+      ctx.strokeStyle = player.color;
       ctx.stroke();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "#000";
-      ctx.stroke();
+    }
+
+    const image = playerImages[player.spriteId];
+    if (isLoaded(image)) {
+      // Scale the sprite to fit inside the cell, keeping its aspect ratio
+      const maxSize = cellSize * 0.8;
+      const scale = Math.min(maxSize / image.naturalWidth, maxSize / image.naturalHeight);
+      const drawW = image.naturalWidth * scale;
+      const drawH = image.naturalHeight * scale;
+      ctx.drawImage(image, centerX - drawW / 2, centerY - drawH / 2, drawW, drawH);
     } else {
+      // Fallback until the image loads: a circle in the player's color
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, cellSize * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = player.color;
+      ctx.fill();
       ctx.lineWidth = 1;
       ctx.strokeStyle = "#000";
       ctx.stroke();

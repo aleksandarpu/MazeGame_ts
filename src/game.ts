@@ -5,7 +5,7 @@ import { createQuestionPopup } from "./question-pop-up";
 import { showDiceRollPopup } from "./dice-pop-up";
 import { GameState } from "./GameState";
 import { Player } from "./player";
-import { flagImagesReady, renderGame } from "./render_maze";
+import { imagesReady, renderGame } from "./render_maze";
 
 export function renderGamePlayScreen(
   container: HTMLElement,
@@ -194,10 +194,10 @@ export function renderGamePlayScreen(
     }
   ); //[cite: 3]
 
-  // Initial UI render (redraw once flag images have loaded)
+  // Initial UI render (redraw once flag and player images have loaded)
   updateUI();
   drawGame();
-  flagImagesReady.then(drawGame);
+  imagesReady.then(drawGame);
   showDicePopup();
 
   return cleanupInput; // Return the listener cleanup function for unmounting
