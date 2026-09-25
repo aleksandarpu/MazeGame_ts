@@ -2,6 +2,7 @@ import {
   Mat3, Quat, Vec3,
   dot, mv, normalize, qAngle, qAxisAngle, qFromTo, qMatrix, qMul, qNorm, qSlerp, randUnit,
 } from "./dice_math";
+import { fadeOutSound, playSound } from "./sounds";
 
 // ---------- Colors ----------
 const COLORS = {
@@ -592,7 +593,9 @@ export function showDiceRollPopup(
     canvasContainer.style.cursor = "default";
     resultText.textContent = "Rolling...";
 
+    const rollSound = playSound("roll");
     const value = await scene.roll();
+    fadeOutSound(rollSound);
     resultText.textContent = `You rolled ${value}! Move ${value} step${value === 1 ? "" : "s"}. 🎉`;
     onRolled(value);
     // Let the confetti play before closing
