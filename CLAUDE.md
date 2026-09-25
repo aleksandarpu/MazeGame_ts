@@ -23,7 +23,7 @@ There is no test runner or linter configured.
 **Game state is a single mutable object** (`GameState` in `src/GameState.ts`: `maze: Cell[][]`, `players: Player[]`, `width`). It's created in `navigateToGamePlay()` and mutated through callbacks (`updatePlayer`, `advanceTurn`) passed down from `index.ts`. Exactly one player has `isCurrentTurn`; `steps` is the remaining moves for that turn.
 
 **Game loop — `src/game.ts` (`renderGamePlayScreen`)** wires everything together:
-1. Dice popup sets `currentPlayer.steps` (1–6).
+1. `dice-pop-up.ts` (`showDiceRollPopup`) shows a 3D physics die (`DiceScene` class, math in `dice_math.ts`, ported from `playful_dice_roller (3).html`). The player clicks it or presses Space. The rolled value becomes `currentPlayer.steps` (1–6).
 2. `maze_input_controller.ts` listens for arrow keys / canvas clicks, validates adjacency against `cell.walls`, and calls back with a target cell.
 3. `player_move.ts` (`executePlayerMove`) decrements steps, checks victory, checks `cell.flag` (suspends the turn and opens a question), or advances the turn when steps hit 0.
 4. Question outcome: correct → +2 score, +3 steps, turn continues; wrong/timeout → steps = 0, next player. This logic lives inline in `game.ts`; `question_resolver.ts` is a duplicate, currently unused version of it.
@@ -43,4 +43,4 @@ There is no test runner or linter configured.
 ## Quirks
 
 - Vite is the only bundler; TypeScript never emits files. Import static files from `assets/` through ES imports (e.g. `import url from "../assets/images/player1.png"`, or import the JSON directly) so Vite fingerprints them and includes them in the build. Plain string paths to `assets/` won't be copied into `dist/`.
-- `playful_dice_roller (3).html` and `test_question_pop-up.html` are standalone UI prototypes, not part of the app.
+- `playful_dice_roller (3).html` and `test_question_pop-up.html` are standalone UI prototypes, not part of the app (the dice one has been ported to `src/dice-pop-up.ts`).

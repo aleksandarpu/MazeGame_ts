@@ -2,6 +2,7 @@ import { Cell, Flag, generateBraidedMaze } from "./maze_generator";
 import { setupInputController } from "./maze_input_controller"; 
 import { executePlayerMove } from "./player_move"; 
 import { createQuestionPopup } from "./question-pop-up"; 
+import { showDiceRollPopup } from "./dice-pop-up";
 import { GameState } from "./GameState";
 import { Player } from "./player";
 import { flagImagesReady, renderGame } from "./render_maze";
@@ -91,66 +92,11 @@ export function renderGamePlayScreen(
     const currentPlayer = gameState.players.find((player) => player.isCurrentTurn);
     if (!currentPlayer || currentPlayer.steps > 0) return;
 
-    const overlay = document.createElement("div");
-    Object.assign(overlay.style, {
-      position: "fixed",
-      inset: "0",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(0, 0, 0, 0.65)",
-      zIndex: "10",
-    });
-
-    const popup = document.createElement("div");
-    Object.assign(popup.style, {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      gap: "18px",
-      padding: "30px",
-      minWidth: "220px",
-      backgroundColor: "#fff",
-      color: "#2c3e50",
-      borderRadius: "12px",
-      textAlign: "center",
-    });
-
-    const title = document.createElement("h2");
-    title.textContent = `${currentPlayer.name}'s turn`;
-    title.style.margin = "0";
-
-    const result = document.createElement("div");
-    result.textContent = "Roll the dice to get your steps";
-    result.style.fontSize = "18px";
-
-    const rollButton = document.createElement("button");
-    rollButton.type = "button";
-    rollButton.textContent = "Roll dice";
-    Object.assign(rollButton.style, {
-      padding: "12px 24px",
-      border: "0",
-      borderRadius: "8px",
-      backgroundColor: "#f1c40f",
-      color: "#2c3e50",
-      fontSize: "18px",
-      fontWeight: "bold",
-      cursor: "pointer",
-    });
-
-    rollButton.addEventListener("click", () => {
-      const steps = Math.floor(Math.random() * 6) + 1;
+    showDiceRollPopup(container, currentPlayer.name, (steps) => {
       currentPlayer.steps = steps;
-      result.textContent = `You rolled ${steps}. Move ${steps} step${steps === 1 ? "" : "s"}.`;
       drawGame();
       updateUI();
-      rollButton.remove();
-      setTimeout(() => overlay.remove(), 700);
     });
-
-    popup.append(title, result, rollButton);
-    overlay.appendChild(popup);
-    container.appendChild(overlay);
   };
 
   // 3. UI Update Logic
