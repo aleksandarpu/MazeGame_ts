@@ -169,6 +169,7 @@ export function renderGamePlayScreen(
 
   // Clear container and setup responsive wrapper
   container.innerHTML = "";
+  container.removeAttribute("style"); // Drop styles an earlier screen set on the shared container
   Object.assign(container.style, {
     height: "100%",
     overflowY: "auto", // body doesn't scroll; the stacked mobile layout scrolls here

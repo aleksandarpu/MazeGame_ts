@@ -7,6 +7,7 @@ export function renderLoginScreen(
 ) {
   // Clear container and set full-screen center alignment
   container.innerHTML = "";
+  container.removeAttribute("style"); // Drop styles an earlier screen set on the shared container
   Object.assign(container.style, {
     display: "flex",
     flexDirection: "column",

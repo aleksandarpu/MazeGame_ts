@@ -30,6 +30,8 @@
     "room.waitingForPlayers": "Чекамо да се играчи придруже...",
     "room.allReady": "Сви су спремни! Игра почиње...",
     "room.waitingForReady": "Чекамо да сви буду спремни...",
+    "room.freeSlot": "Слободно место",
+    "room.readyCount": "Спремно: {ready} од {total}",
     "room.leave": "Напусти собу",
     "room.error.notFound": "Ова соба више не постоји.",
     "room.error.started": "Ова игра је већ почела.",

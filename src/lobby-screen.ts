@@ -24,6 +24,7 @@ export function renderLobbyScreen(
   const build = () => {
     // Clear container
     container.innerHTML = "";
+    container.removeAttribute("style"); // Drop styles an earlier screen set on the shared container
     container.style.display = "flex";
     container.style.flexDirection = "column";
     container.style.padding = "20px";

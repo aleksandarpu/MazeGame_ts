@@ -30,6 +30,8 @@
     "room.waitingForPlayers": "Waiting for players to join...",
     "room.allReady": "All players ready! Starting game...",
     "room.waitingForReady": "Waiting for all players to be ready...",
+    "room.freeSlot": "Free spot",
+    "room.readyCount": "{ready} of {total} ready",
     "room.leave": "Leave Room",
     "room.error.notFound": "This room no longer exists.",
     "room.error.started": "This game has already started.",
