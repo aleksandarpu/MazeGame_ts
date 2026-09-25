@@ -3,7 +3,7 @@ import { setupInputController } from "./maze_input_controller";
 import { executePlayerMove } from "./player_move"; 
 import { createQuestionPopup } from "./question-pop-up"; 
 import { showDiceRollPopup } from "./dice-pop-up";
-import { playSound } from "./sounds";
+import { isGroupMuted, muteGroups, playSound, setGroupMuted } from "./sounds";
 import { GameState } from "./GameState";
 import { Player } from "./player";
 import { BOARD_PADDING, getPlayerImageUrl, renderGame } from "./render_maze";
@@ -38,6 +38,7 @@ function injectLayoutStyles() {
       display: grid;
       grid-template-columns: minmax(0, 620px) minmax(260px, 340px);
       grid-template-areas:
+        "mute    ."
         "maze    score"
         "current .";
       justify-content: center;
@@ -46,6 +47,19 @@ function injectLayoutStyles() {
       padding: 24px 20px;
       box-sizing: border-box;
     }
+    .gs-mute {
+      grid-area: mute;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 16px;
+      padding: 8px 16px;
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+    .gs-mute-title { font-weight: 700; }
+    .gs-mute label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+    .gs-mute input { width: 17px; height: 17px; margin: 0; cursor: pointer; }
     .gs-maze {
       grid-area: maze;
       padding: 10px;
@@ -106,6 +120,7 @@ function injectLayoutStyles() {
       .gs-layout {
         grid-template-columns: minmax(0, 620px);
         grid-template-areas:
+          "mute"
           "maze"
           "current"
           "score";
@@ -145,6 +160,27 @@ export function renderGamePlayScreen(
   const layout = document.createElement("div");
   layout.className = "gs-layout";
 
+  // 0. Mute row (above the maze): one checkbox per sound group
+  const muteRow = document.createElement("div");
+  muteRow.className = "gs-mute gs-panel";
+  const muteTitle = document.createElement("span");
+  muteTitle.className = "gs-mute-title gs-label";
+  muteTitle.textContent = "Mute:";
+  muteRow.appendChild(muteTitle);
+  for (const group of muteGroups) {
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = isGroupMuted(group.id);
+    checkbox.addEventListener("change", () => {
+      setGroupMuted(group.id, checkbox.checked);
+      // Release focus so the next Space press rolls the dice instead of toggling this box
+      checkbox.blur();
+    });
+    label.append(checkbox, group.label);
+    muteRow.appendChild(label);
+  }
+
   // 1. Maze Canvas in a frame (scales down on narrow screens, keeping its aspect ratio)
   const mazeFrame = document.createElement("div");
   mazeFrame.className = "gs-maze gs-panel";
@@ -162,7 +198,7 @@ export function renderGamePlayScreen(
   const scoreboardBox = document.createElement("div");
   scoreboardBox.className = "gs-score gs-panel";
 
-  layout.append(mazeFrame, scoreboardBox, currentPlayerBox);
+  layout.append(muteRow, mazeFrame, scoreboardBox, currentPlayerBox);
   root.appendChild(layout);
   container.appendChild(root);
 
