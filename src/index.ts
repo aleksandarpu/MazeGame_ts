@@ -6,6 +6,7 @@ import { GameState, syncedPart } from "./GameState";
 import { gameStateFromDoc, saveGame, syncedFromDoc, watchGame } from "./games";
 import { showResultPopup } from "./answer-pop-up";
 import { showVictoryPopup as renderVictoryPopup } from "./victory-pop-up";
+import { t } from "./i18n";
 import { getClientUserId, startPresence, setPresenceRoom } from "./presence";
 import {
   Room, RoomMember, sortedMembers, seedMockRooms, watchRooms, watchRoom, newRoomId, createRoom,
@@ -99,11 +100,11 @@ function navigateToLobby() {
 
   const handleCreateRoom = (roomName: string) => {
     const roomId = newRoomId();
-    enterRoom(roomId, () => createRoom(roomId, roomName, userId, userName), "Could not create the room.");
+    enterRoom(roomId, () => createRoom(roomId, roomName, userId, userName), t("lobby.createFailed"));
   };
 
   const handleJoinRoom = (roomId: string) => {
-    enterRoom(roomId, () => joinRoom(roomId, userId, userName), "Could not join the room.");
+    enterRoom(roomId, () => joinRoom(roomId, userId, userName), t("lobby.joinFailed"));
   };
 
   const updateRooms = renderLobbyScreen(appContainer, userName, handleCreateRoom, handleJoinRoom);

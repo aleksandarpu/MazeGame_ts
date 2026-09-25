@@ -3,6 +3,7 @@ import {
   dot, mv, normalize, qAngle, qAxisAngle, qFromTo, qMatrix, qMul, qNorm, qSlerp, randUnit,
 } from "./dice_math";
 import { fadeOutSound, playSound } from "./sounds";
+import { t, tPlural } from "./i18n";
 
 // ---------- Colors ----------
 const COLORS = {
@@ -554,7 +555,7 @@ function buildDiceModal(container: HTMLElement, playerName: string, hintText: st
   });
 
   const title = document.createElement("h2");
-  title.textContent = `${playerName}'s turn`;
+  title.textContent = t("dice.turn", { name: playerName });
   Object.assign(title.style, { margin: "0 0 4px 0", fontSize: "24px", color: "#0ea5e9" });
 
   const hint = document.createElement("div");
@@ -602,10 +603,6 @@ function buildDiceModal(container: HTMLElement, playerName: string, hintText: st
   return { resultText, canvas, canvasContainer, scene, close };
 }
 
-function rolledMessage(who: string, value: number): string {
-  return `${who} rolled ${value}! Move ${value} step${value === 1 ? "" : "s"}. 🎉`;
-}
-
 /**
  * Shows a modal with a 3D die. The player rolls by clicking the die or pressing Space.
  * `onRollStart` fires when the roll begins, `onRolled` as soon as the die settles;
@@ -618,7 +615,7 @@ export function showDiceRollPopup(
   onRollStart: () => void = () => {}
 ) {
   const { resultText, canvasContainer, scene, close } = buildDiceModal(
-    container, playerName, "Click the dice or press Space!", "Roll the dice to get your steps"
+    container, playerName, t("dice.hint"), t("dice.prompt")
   );
   canvasContainer.style.cursor = "pointer";
 
@@ -629,13 +626,13 @@ export function showDiceRollPopup(
     hasRolled = true;
     window.removeEventListener("keydown", handleKeyDown);
     canvasContainer.style.cursor = "default";
-    resultText.textContent = "Rolling...";
+    resultText.textContent = t("dice.rolling");
     onRollStart();
 
     const rollSound = playSound("roll");
     const value = await scene.roll();
     fadeOutSound(rollSound);
-    resultText.textContent = rolledMessage("You", value);
+    resultText.textContent = tPlural("dice.youRolled", value);
     onRolled(value);
     // Let the confetti play before closing
     setTimeout(close, 1200);
@@ -666,7 +663,7 @@ export type SpectatorDice = {
  */
 export function showSpectatorDicePopup(container: HTMLElement, playerName: string): SpectatorDice {
   const { resultText, canvas, scene, close } = buildDiceModal(
-    container, playerName, `Waiting for ${playerName} to roll...`, ""
+    container, playerName, t("dice.waiting", { name: playerName }), ""
   );
 
   let tumble: Promise<number> | null = null;
@@ -675,7 +672,7 @@ export function showSpectatorDicePopup(container: HTMLElement, playerName: strin
 
   const startRolling = () => {
     if (tumble || resultShown) return;
-    resultText.textContent = "Rolling...";
+    resultText.textContent = t("dice.rolling");
     rollSound = playSound("roll");
     tumble = scene.roll();
   };
@@ -692,7 +689,7 @@ export function showSpectatorDicePopup(container: HTMLElement, playerName: strin
       scene.showFace(value);
       canvas.style.opacity = "1";
     }
-    resultText.textContent = rolledMessage(playerName, value);
+    resultText.textContent = tPlural("dice.playerRolled", value, { name: playerName });
     setTimeout(close, 1500);
   };
 

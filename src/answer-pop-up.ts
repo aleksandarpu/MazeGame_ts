@@ -1,4 +1,5 @@
 import { appendFormattedText } from "./question-pop-up";
+import { t } from "./i18n";
 
 export type AnswerDetails = {
   answerText: string | null; // The chosen answer, null when the time ran out
@@ -46,7 +47,7 @@ export function showResultPopup(
 
   // 3. Create Content
   const title = document.createElement("h2");
-  title.innerText = isCorrect ? "Correct!" : "Wrong!";
+  title.innerText = t(isCorrect ? "result.correct" : "result.wrong");
   title.style.color = borderColor;
   title.style.margin = "0 0 15px 0";
   title.style.fontSize = "32px";
@@ -65,7 +66,7 @@ export function showResultPopup(
     marginBottom: "15px",
   });
   if (details.answerText === null) {
-    answerBox.textContent = "Time's up: no answer";
+    answerBox.textContent = t("result.timeUp");
   } else {
     appendFormattedText(answerBox, details.answerText);
   }
@@ -73,14 +74,14 @@ export function showResultPopup(
   const who = details.playerName;
   const message = document.createElement("p");
   message.innerText = isCorrect
-    ? who ? `${who} gets +2 Score & +3 Steps!` : "+2 Score & +3 Steps!"
-    : who ? `${who} lost the remaining steps.` : "You lost your remaining steps.";
+    ? who ? t("result.correctPlayer", { name: who }) : t("result.correctYou")
+    : who ? t("result.wrongPlayer", { name: who }) : t("result.wrongYou");
   message.style.fontSize = "18px";
   message.style.color = "#333";
   message.style.marginBottom = "25px";
 
   const prompt = document.createElement("div");
-  prompt.innerText = "Click, press Space, or press Enter to continue";
+  prompt.innerText = t("result.continue");
   prompt.style.fontSize = "14px";
   prompt.style.color = "#777";
   prompt.style.fontStyle = "italic";

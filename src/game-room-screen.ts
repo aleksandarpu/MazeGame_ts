@@ -1,3 +1,5 @@
+import { createLanguagePicker, t } from "./i18n";
+
 export type RoomPlayer = {
   id: string;
   name: string;
@@ -25,14 +27,21 @@ export function renderGameRoomScreen(
 
   // 1. Header
   const header = document.createElement("h1");
-  header.innerText = `Room: ${roomName}`;
+  header.innerText = t("room.title", { name: roomName });
   header.style.borderBottom = "2px solid #bdc3c7";
   header.style.paddingBottom = "10px";
   container.appendChild(header);
 
+  // Language switch: redraw this screen with the same data
+  const languagePicker = createLanguagePicker(() =>
+    renderGameRoomScreen(container, roomName, currentUserId, players, onToggleStatus, onLeave)
+  );
+  languagePicker.style.alignSelf = "flex-end";
+  container.appendChild(languagePicker);
+
   // 2. Player List Section
   const listTitle = document.createElement("h2");
-  listTitle.innerText = "Players in Room";
+  listTitle.innerText = t("room.playersInRoom");
   container.appendChild(listTitle);
 
   const listContainer = document.createElement("div");
@@ -65,7 +74,7 @@ export function renderGameRoomScreen(
     });
 
     const nameNode = document.createElement("span");
-    nameNode.innerText = player.id === currentUserId ? `${player.name} (You)` : player.name;
+    nameNode.innerText = player.id === currentUserId ? t("room.you", { name: player.name }) : player.name;
     nameNode.style.fontSize = "18px";
     nameNode.style.fontWeight = player.id === currentUserId ? "bold" : "normal";
 
@@ -75,7 +84,7 @@ export function renderGameRoomScreen(
     statusWrapper.style.gap = "15px";
 
     const statusText = document.createElement("span");
-    statusText.innerText = player.status.toUpperCase();
+    statusText.innerText = t(player.status === "ready" ? "room.status.ready" : "room.status.waiting");
     statusText.style.fontWeight = "bold";
     statusText.style.color = player.status === "ready" ? "#27ae60" : "#f39c12";
 
@@ -84,7 +93,7 @@ export function renderGameRoomScreen(
     // user can change own status from initial waiting or ready[cite: 1]
     if (player.id === currentUserId) {
       const toggleBtn = document.createElement("button");
-      toggleBtn.innerText = player.status === "ready" ? "Set Waiting" : "Set Ready";
+      toggleBtn.innerText = t(player.status === "ready" ? "room.setWaiting" : "room.setReady");
       Object.assign(toggleBtn.style, {
         padding: "8px 15px",
         fontSize: "14px",
@@ -121,18 +130,18 @@ export function renderGameRoomScreen(
   });
 
   if (players.length === 0) {
-    statusMessage.innerText = "Waiting for players to join...";
+    statusMessage.innerText = t("room.waitingForPlayers");
   } else if (allReady) {
-    statusMessage.innerText = "All players ready! Starting game...";
+    statusMessage.innerText = t("room.allReady");
   } else {
-    statusMessage.innerText = "Waiting for all players to be ready...";
+    statusMessage.innerText = t("room.waitingForReady");
   }
 
   container.appendChild(statusMessage);
 
   // 4. Back to the lobby
   const leaveBtn = document.createElement("button");
-  leaveBtn.innerText = "Leave Room";
+  leaveBtn.innerText = t("room.leave");
   Object.assign(leaveBtn.style, {
     alignSelf: "center",
     marginTop: "25px",

@@ -27,14 +27,15 @@ for (const [name, url] of Object.entries(soundUrls) as [SoundName, string][]) {
 }
 
 // ---------- Muting ----------
-// Groups the player can mute from the game screen (the victory sound is never muted)
+// Groups the player can mute from the game screen (the victory sound is never muted).
+// Each group's name is the text "mute.<id>" in assets/lang.
 export const muteGroups = [
-  { id: "steps", label: "steps", sounds: ["footstep"] },
-  { id: "dice", label: "dice", sounds: ["roll"] },
-  { id: "answers", label: "answers", sounds: ["collect", "wrongAnswer"] },
-  { id: "nextPlayer", label: "next player", sounds: ["changePlayer"] },
-  { id: "wall", label: "wall", sounds: ["damageTaken"] },
-] as const satisfies readonly { id: string; label: string; sounds: readonly SoundName[] }[];
+  { id: "steps", sounds: ["footstep"] },
+  { id: "dice", sounds: ["roll"] },
+  { id: "answers", sounds: ["collect", "wrongAnswer"] },
+  { id: "nextPlayer", sounds: ["changePlayer"] },
+  { id: "wall", sounds: ["damageTaken"] },
+] as const satisfies readonly { id: string; sounds: readonly SoundName[] }[];
 
 export type MuteGroupId = (typeof muteGroups)[number]["id"];
 

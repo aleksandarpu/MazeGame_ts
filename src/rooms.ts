@@ -3,6 +3,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase_init";
 import { UserPresence, watchPresence } from "./presence";
+import { t } from "./i18n";
 import { buildNewGame, createGameInTransaction, deleteGameInTransaction } from "./games";
 
 // Firestore: gameRooms/{roomId}
@@ -147,11 +148,11 @@ export async function joinRoom(roomId: string, userId: string, userName: string)
   await runTransaction(db, async (tx) => {
     const ref = doc(roomsCollection, roomId);
     const snap = await tx.get(ref);
-    if (!snap.exists()) throw new Error("This room no longer exists.");
+    if (!snap.exists()) throw new Error(t("room.error.notFound"));
     const room = toRoom(snap.id, snap.data());
     if (room.players[userId]) return; // Already in it
-    if (room.status !== "waiting") throw new Error("This game has already started.");
-    if (Object.keys(room.players).length >= MAX_PLAYERS_PER_ROOM) throw new Error("This room is full.");
+    if (room.status !== "waiting") throw new Error(t("room.error.started"));
+    if (Object.keys(room.players).length >= MAX_PLAYERS_PER_ROOM) throw new Error(t("room.error.full"));
     tx.update(ref, {
       [`players.${userId}`]: { name: userName, status: "waiting", joinedAt: Date.now() },
     });

@@ -1,6 +1,9 @@
+import { createLanguagePicker, t } from "./i18n";
+
 export function renderLoginScreen(
   container: HTMLElement,
-  onLogin: (playerName: string) => void
+  onLogin: (playerName: string) => void,
+  initialName: string = ""
 ) {
   // Clear container and set full-screen center alignment
   container.innerHTML = "";
@@ -30,19 +33,20 @@ export function renderLoginScreen(
 
   // Title & Subtitle
   const title = document.createElement("h1");
-  title.innerText = "Maze Game";
+  title.innerText = t("login.title");
   title.style.margin = "0 0 10px 0";
   title.style.color = "#2980b9";
 
   const subtitle = document.createElement("p");
-  subtitle.innerText = "Select a player name to begin";
+  subtitle.innerText = t("login.subtitle");
   subtitle.style.margin = "0 0 25px 0";
   subtitle.style.color = "#7f8c8d";
 
   // Name Input Field
   const nameInput = document.createElement("input");
   nameInput.type = "text";
-  nameInput.placeholder = "Enter Player Name";
+  nameInput.placeholder = t("login.namePlaceholder");
+  nameInput.value = initialName;
   nameInput.maxLength = 16; // Keep names UI-friendly
   Object.assign(nameInput.style, {
     width: "100%",
@@ -57,7 +61,7 @@ export function renderLoginScreen(
 
   // Submit Button
   const loginBtn = document.createElement("button");
-  loginBtn.innerText = "Enter Lobby";
+  loginBtn.innerText = t("login.enter");
   Object.assign(loginBtn.style, {
     width: "100%",
     padding: "12px",
@@ -83,7 +87,7 @@ export function renderLoginScreen(
     } else {
       // Basic validation feedback
       nameInput.style.borderColor = "#e74c3c";
-      nameInput.placeholder = "Name cannot be empty!";
+      nameInput.placeholder = t("login.nameEmpty");
       
       // Reset border color on next input
       nameInput.addEventListener("input", () => {
@@ -101,7 +105,12 @@ export function renderLoginScreen(
     }
   };
 
+  // Language switch: redraw this screen, keeping the typed name
+  const languagePicker = createLanguagePicker(() => renderLoginScreen(container, onLogin, nameInput.value));
+  languagePicker.style.marginBottom = "20px";
+
   // Assemble the UI
+  loginBox.appendChild(languagePicker);
   loginBox.appendChild(title);
   loginBox.appendChild(subtitle);
   loginBox.appendChild(nameInput);

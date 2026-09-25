@@ -1,4 +1,5 @@
 import { getQuestion, getRandomQuestion } from "./questions";
+import { t } from "./i18n";
 
 // The correct answer is always listed first in the question files
 export const CORRECT_ANSWER_INDEX = 0;
@@ -197,7 +198,7 @@ export function createQuestionPopup(
   });
 
   const waitingNote = document.createElement("div");
-  waitingNote.innerText = "Waiting for the answer...";
+  waitingNote.innerText = t("question.waiting");
   Object.assign(waitingNote.style, { marginTop: "15px", fontSize: "15px", fontStyle: "italic", color: "#7f8c8d" });
 
   // Assemble Modal

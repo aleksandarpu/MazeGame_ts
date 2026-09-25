@@ -17,8 +17,7 @@ export type BoardTheme = {
 };
 
 export type Theme = {
-  id: string;
-  label: string;
+  id: string; // Its name is the text "theme.<id>" in assets/lang
   swatch: string; // color of the theme's switcher button
   board: BoardTheme;
   css: string;
@@ -27,7 +26,6 @@ export type Theme = {
 export const themes: Theme[] = [
   {
     id: "garden",
-    label: "Garden Board",
     swatch: "#5cae4a",
     board: {
       tileA: "#92d36c", tileB: "#86c860",
@@ -51,7 +49,6 @@ export const themes: Theme[] = [
   },
   {
     id: "neon",
-    label: "Neon Night",
     swatch: "#7dffb2",
     board: {
       tileA: "#0d1024", tileB: "#10142c",
@@ -74,7 +71,6 @@ export const themes: Theme[] = [
   },
   {
     id: "candy",
-    label: "Candy Pop",
     swatch: "#ff5fa2",
     board: {
       tileA: "#fff7fb", tileB: "#ffeef6",

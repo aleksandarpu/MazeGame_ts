@@ -1,4 +1,5 @@
 import { playSound } from "./sounds";
+import { t } from "./i18n";
 
 export type PlayerStats = {
   id: string;
@@ -50,12 +51,12 @@ export function showVictoryPopup(
 
   // 3. Title & Winner Announcement
   const title = document.createElement("h1");
-  title.innerText = "🏆 Match Finished! 🏆";
+  title.innerText = t("victory.title");
   title.style.margin = "0 0 10px 0";
   title.style.color = "#FF8C00";
 
   const winnerAnnouncement = document.createElement("h2");
-  winnerAnnouncement.innerText = `${winner.name} Wins!`;
+  winnerAnnouncement.innerText = t("victory.winner", { name: winner.name });
   winnerAnnouncement.style.margin = "0 0 25px 0";
   winnerAnnouncement.style.color = "#2c3e50";
 
@@ -110,7 +111,7 @@ export function showVictoryPopup(
 
     // Score Node
     const scoreNode = document.createElement("span");
-    scoreNode.innerText = `${player.score} pts`;
+    scoreNode.innerText = t("victory.points", { score: player.score });
     scoreNode.style.fontWeight = "bold";
     scoreNode.style.fontSize = "18px";
     scoreNode.style.color = "#27ae60";
@@ -122,7 +123,7 @@ export function showVictoryPopup(
 
   // 6. Return Button
   const returnBtn = document.createElement("button");
-  returnBtn.innerText = "Return to Lobby";
+  returnBtn.innerText = t("victory.backToLobby");
   Object.assign(returnBtn.style, {
     padding: "12px 25px",
     fontSize: "18px",

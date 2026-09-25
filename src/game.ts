@@ -11,6 +11,7 @@ import { GamePhase, GameState, SyncedGameState } from "./GameState";
 import { Player } from "./player";
 import { BOARD_PADDING, getPlayerImageUrl, renderGame } from "./render_maze";
 import { Theme, loadSavedTheme, saveTheme, themes } from "./themes";
+import { TextKey, createLanguagePicker, t } from "./i18n";
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -150,12 +151,14 @@ export type GameScreen = {
   removePlayers: (playerIds: string[]) => void;
 };
 
-const phaseText: Record<GamePhase, string> = {
-  roll: "Rolling the dice",
-  move: "Moving",
-  question: "Answering a question",
-  finished: "Finished",
+const phaseTextKey: Record<GamePhase, TextKey> = {
+  roll: "game.phase.roll",
+  move: "game.phase.move",
+  question: "game.phase.question",
+  finished: "game.phase.finished",
 };
+
+const themeName = (theme: Theme) => t(`theme.${theme.id}` as TextKey);
 
 export function renderGamePlayScreen(
   container: HTMLElement,
@@ -181,26 +184,39 @@ export function renderGamePlayScreen(
   const layout = document.createElement("div");
   layout.className = "gs-layout";
 
-  // 0. Mute row (above the maze): one checkbox per sound group
+  // 0. Mute row (above the maze): one checkbox per sound group, and the language picker.
+  // Rebuilt when the language changes.
   const muteRow = document.createElement("div");
   muteRow.className = "gs-mute gs-panel";
-  const muteTitle = document.createElement("span");
-  muteTitle.className = "gs-mute-title gs-label";
-  muteTitle.textContent = "Mute:";
-  muteRow.appendChild(muteTitle);
-  for (const group of muteGroups) {
-    const label = document.createElement("label");
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = isGroupMuted(group.id);
-    checkbox.addEventListener("change", () => {
-      setGroupMuted(group.id, checkbox.checked);
-      // Release focus so the next Space press rolls the dice instead of toggling this box
-      checkbox.blur();
+  const buildMuteRow = () => {
+    muteRow.replaceChildren();
+    const muteTitle = document.createElement("span");
+    muteTitle.className = "gs-mute-title gs-label";
+    muteTitle.textContent = t("game.mute");
+    muteRow.appendChild(muteTitle);
+    for (const group of muteGroups) {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = isGroupMuted(group.id);
+      checkbox.addEventListener("change", () => {
+        setGroupMuted(group.id, checkbox.checked);
+        // Release focus so the next Space press rolls the dice instead of toggling this box
+        checkbox.blur();
+      });
+      label.append(checkbox, t(`mute.${group.id}`));
+      muteRow.appendChild(label);
+    }
+    const languagePicker = createLanguagePicker(() => {
+      buildMuteRow();
+      updateUI();
     });
-    label.append(checkbox, group.label);
-    muteRow.appendChild(label);
-  }
+    languagePicker.style.marginLeft = "auto";
+    // Release focus after choosing, so arrow keys move the player instead of changing the language
+    languagePicker.querySelector("select")?.addEventListener("change", (e) => (e.target as HTMLElement).blur());
+    muteRow.appendChild(languagePicker);
+  };
+  buildMuteRow();
 
   // 1. Maze Canvas in a frame (scales down on narrow screens, keeping its aspect ratio)
   const mazeFrame = document.createElement("div");
@@ -327,11 +343,12 @@ export function renderGamePlayScreen(
     const sortedPlayers = [...gameState.players].sort((a, b) => b.score - a.score);
     scoreboardBox.innerHTML = `
       <div class="gs-score-header">
-        <h2 class="gs-title">Scoreboard</h2>
+        <h2 class="gs-title">${escapeHtml(t("game.scoreboard"))}</h2>
         <div class="gs-themes">
-          ${themes.map((t) => `
-            <button type="button" class="gs-theme-btn ${t.id === theme.id ? "active" : ""}" data-theme="${t.id}"
-              title="${t.label}" aria-label="${t.label} theme" style="background-color: ${t.swatch};"></button>`).join("")}
+          ${themes.map((option) => `
+            <button type="button" class="gs-theme-btn ${option.id === theme.id ? "active" : ""}" data-theme="${option.id}"
+              title="${escapeHtml(themeName(option))}" aria-label="${escapeHtml(t("game.themeButton", { theme: themeName(option) }))}"
+              style="background-color: ${option.swatch};"></button>`).join("")}
         </div>
       </div>
       ${sortedPlayers.map((player, index) => `
@@ -355,16 +372,16 @@ export function renderGamePlayScreen(
       currentPlayerBox.innerHTML = `
         <div class="gs-avatar">${playerIconHtml(currentPlayer)}</div>
         <div class="gs-who">
-          <div class="gs-label">Now playing${controllerOf(currentPlayer) === localUserId ? " (you)" : ""}</div>
+          <div class="gs-label">${escapeHtml(t(controllerOf(currentPlayer) === localUserId ? "game.nowPlayingYou" : "game.nowPlaying"))}</div>
           <div class="gs-who-name">${escapeHtml(currentPlayer.name)}</div>
-          <div class="gs-label">${phaseText[gameState.phase]}</div>
+          <div class="gs-label">${escapeHtml(t(phaseTextKey[gameState.phase]))}</div>
         </div>
         <div class="gs-stat">
-          <span class="gs-label">Steps left</span>
+          <span class="gs-label">${escapeHtml(t("game.stepsLeft"))}</span>
           <span class="gs-big">${currentPlayer.steps}</span>
         </div>
         <div class="gs-stat">
-          <span class="gs-label">Score</span>
+          <span class="gs-label">${escapeHtml(t("game.score"))}</span>
           <span class="gs-big">${currentPlayer.score}</span>
         </div>
       `;
