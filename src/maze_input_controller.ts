@@ -4,6 +4,7 @@ import { Player } from "./player";
 export function setupInputController(
   canvas: HTMLCanvasElement,
   cellSize: number,
+  boardPadding: number, // canvas margin around the maze (px)
   maze: Cell[][],
   getCurrentPlayer: () => Player | undefined,
   onPlayerMove: (newX: number, newY: number) => void,
@@ -83,8 +84,8 @@ export function setupInputController(
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / canvas.clientWidth;
     const scaleY = canvas.height / canvas.clientHeight;
-    const clickX = (e.clientX - rect.left - canvas.clientLeft) * scaleX;
-    const clickY = (e.clientY - rect.top - canvas.clientTop) * scaleY;
+    const clickX = (e.clientX - rect.left - canvas.clientLeft) * scaleX - boardPadding;
+    const clickY = (e.clientY - rect.top - canvas.clientTop) * scaleY - boardPadding;
 
     // Convert pixel coordinates to grid indices
     const targetX = Math.floor(clickX / cellSize);

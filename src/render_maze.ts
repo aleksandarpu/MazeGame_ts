@@ -77,6 +77,13 @@ function isLoaded(image: HTMLImageElement | undefined): image is HTMLImageElemen
   return !!image && image.complete && image.naturalWidth > 0;
 }
 
+/**
+ * Margin (px) around the maze on the canvas, so the outer walls sit centered on the
+ * cell edges like the inner walls instead of being pushed inward.
+ * The canvas must be `width * cellSize + 2 * BOARD_PADDING` wide (same for height).
+ */
+export const BOARD_PADDING = 8;
+
 type Segment = [number, number, number, number];
 
 /** Every wall as a line segment; each shared wall is listed once */
@@ -97,12 +104,7 @@ function wallSegments(maze: Cell[][], cellSize: number): Segment[] {
   return segments;
 }
 
-function drawWalls(ctx: CanvasRenderingContext2D, segments: Segment[], board: BoardTheme, canvasW: number, canvasH: number) {
-  // Keep the outer walls fully inside the canvas
-  const inset = board.wallWidth / 2;
-  const clampX = (v: number) => Math.min(canvasW - inset, Math.max(inset, v));
-  const clampY = (v: number) => Math.min(canvasH - inset, Math.max(inset, v));
-
+function drawWalls(ctx: CanvasRenderingContext2D, segments: Segment[], board: BoardTheme) {
   const stroke = (color: string, lineWidth: number, dy: number, glow?: string) => {
     ctx.save();
     ctx.strokeStyle = color;
@@ -114,8 +116,8 @@ function drawWalls(ctx: CanvasRenderingContext2D, segments: Segment[], board: Bo
     }
     ctx.beginPath();
     for (const [x1, y1, x2, y2] of segments) {
-      ctx.moveTo(clampX(x1), clampY(y1) + dy);
-      ctx.lineTo(clampX(x2), clampY(y2) + dy);
+      ctx.moveTo(x1, y1 + dy);
+      ctx.lineTo(x2, y2 + dy);
     }
     ctx.stroke();
     ctx.restore();
@@ -150,6 +152,12 @@ export function renderGame(
   const width = maze[0].length;
   const canvasW = width * cellSize;
   const canvasH = height * cellSize;
+
+  // Margin around the maze, then draw everything in maze coordinates
+  ctx.fillStyle = board.tileA;
+  ctx.fillRect(0, 0, canvasW + 2 * BOARD_PADDING, canvasH + 2 * BOARD_PADDING);
+  ctx.save();
+  ctx.translate(BOARD_PADDING, BOARD_PADDING);
 
   // 1. Tiles (checkerboard) and optional dotted grid
   for (let y = 0; y < height; y++) {
@@ -192,12 +200,14 @@ export function renderGame(
   ctx.fillRect(finishX - cellSize / 2, 0, cellSize * 1.5, cellSize * 1.5);
   const crown = crownImages[Math.floor(time / 500) % 2];
   if (isLoaded(crown)) {
-    const size = cellSize * 1.1;
-    ctx.drawImage(crown, finishCX - size / 2, finishCY - size * 0.55, size, size);
+    // The crown sits in the middle of a square image with empty space around it:
+    // centering the image centers the crown, and 1.2x the cell keeps the crown itself inside the tile
+    const size = cellSize * 1.2;
+    ctx.drawImage(crown, finishCX - size / 2, finishCY - size / 2, size, size);
   }
 
   // 4. Walls
-  drawWalls(ctx, wallSegments(maze, cellSize), board, canvasW, canvasH);
+  drawWalls(ctx, wallSegments(maze, cellSize), board);
 
   // 5. Flags: coin images with a soft drop shadow
   for (const row of maze) {
@@ -273,4 +283,6 @@ export function renderGame(
 
   waitingPlayers.forEach(drawPlayer);
   if (currentPlayer) drawPlayer(currentPlayer);
+
+  ctx.restore();
 }

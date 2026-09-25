@@ -6,7 +6,7 @@ import { showDiceRollPopup } from "./dice-pop-up";
 import { playSound } from "./sounds";
 import { GameState } from "./GameState";
 import { Player } from "./player";
-import { getPlayerImageUrl, renderGame } from "./render_maze";
+import { BOARD_PADDING, getPlayerImageUrl, renderGame } from "./render_maze";
 import { Theme, loadSavedTheme, saveTheme, themes } from "./themes";
 
 const MIN_STEP_PIPS = 6; // dice max; more pips appear when a correct answer adds steps
@@ -150,8 +150,8 @@ export function renderGamePlayScreen(
   mazeFrame.className = "gs-maze gs-panel";
   const canvas = document.createElement("canvas");
   const cellSize = 40;
-  canvas.width = gameState.width * cellSize;
-  canvas.height = gameState.maze.length * cellSize;
+  canvas.width = gameState.width * cellSize + 2 * BOARD_PADDING;
+  canvas.height = gameState.maze.length * cellSize + 2 * BOARD_PADDING;
   mazeFrame.appendChild(canvas);
 
   // 2. Current Player Box (below the maze)
@@ -303,6 +303,7 @@ export function renderGamePlayScreen(
   const cleanupInput = setupInputController(
     canvas,
     cellSize,
+    BOARD_PADDING,
     gameState.maze,
     getCurrentPlayer,
     (targetX: number, targetY: number) => {
