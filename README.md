@@ -2,7 +2,7 @@
 
 A browser-based, turn-based multiplayer quiz game. Players take turns rolling a die and moving through a maze from the bottom-left corner to the top-right one. Landing on a flag opens a timed multiple-choice question: a correct answer earns points and extra steps, a wrong one ends the turn.
 
-It's a client–server application written in TypeScript. The browser client uses no UI framework (plain DOM and `<canvas>`) and is built with Vite. A Node.js server keeps the lobby, game rooms and shared game state in SQLite and talks to the browsers over WebSockets. The quiz questions are in Serbian (Cyrillic); the interface is available in English and Serbian.
+It's a client–server application written in TypeScript. The browser client uses no UI framework (plain DOM and `<canvas>`) and is built with Vite. A Node.js server keeps the lobby, game rooms and shared game state in a SQLite database (Turso in production) and talks to the browsers over WebSockets. The client is hosted on Vercel, the server on Railway. The quiz questions are in Serbian (Cyrillic); the interface is available in English and Serbian.
 
 ## Features
 
@@ -38,34 +38,80 @@ The lobby also has two practice rooms, **Alpha Room** and **Beta Room**. Their p
 | `npm start` | Runs the server in production mode: it serves `dist/` and the WebSocket on one port |
 | `npx tsc` | Type-check only |
 
-## Running in production
+## Deployment
+
+Three services, each on a free or hobby plan:
+
+| Part | Host | What it runs |
+| --- | --- | --- |
+| Client | **Vercel** | The built static site (`dist/`) |
+| Server | **Railway** | `npm start`: the Node WebSocket server |
+| Database | **Turso** | SQLite in the cloud (libSQL) |
+
+The browser loads the page from Vercel and opens a WebSocket straight to Railway. Only the server talks to Turso, so the database token never reaches the browser.
+
+Set them up in this order, because each step needs an address from the one before.
+
+### 1. Turso (database)
+
+1. Sign up at [turso.tech](https://turso.tech) and install the CLI (or use the web dashboard).
+2. Create a database, in the region closest to where Railway will run:
+   ```bash
+   turso auth login
+   turso db create mazegame
+   turso db show mazegame --url        # libsql://mazegame-<org>.turso.io
+   turso db tokens create mazegame     # the auth token
+   ```
+3. Keep the URL and the token for step 2. The server creates the tables itself on its first start.
+
+### 2. Railway (server)
+
+1. At [railway.com](https://railway.com), create a project → **Deploy from GitHub repo** → this repository, and pick the `vercel_turso_railway` branch (service **Settings → Source**).
+2. [`railway.json`](railway.json) sets the build (`npx tsc`), the start command (`npm start`), the health check (`/health`) and **1 replica**. Keep it at one: connections and the request queue live in the server's memory.
+3. Under **Variables**, add:
+   - `TURSO_DATABASE_URL` = the `libsql://…` URL
+   - `TURSO_AUTH_TOKEN` = the token
+   - `ALLOWED_ORIGINS` = your Vercel address(es), e.g. `https://mazegame.vercel.app,https://mazegame-*.vercel.app` (the second one allows Vercel's preview deployments; you can fill this in after step 3)
+
+   Railway sets `PORT` itself.
+4. Under **Settings → Networking**, click **Generate Domain**. You get something like `mazegame-production.up.railway.app`. Check that `https://<that domain>/health` answers `ok`.
+
+### 3. Vercel (client)
+
+1. At [vercel.com](https://vercel.com), **Add New → Project** → import this repository. [`vercel.json`](vercel.json) sets the framework (Vite), the build command and the output folder.
+2. Under **Environment Variables**, add `VITE_SERVER_URL` = `wss://<your Railway domain>/ws`. Vite builds it into the page, so redeploy after changing it.
+3. Set the branch to deploy from: **Settings → Git → Production Branch** = `vercel_turso_railway` (or merge the branch into `main`).
+4. Deploy, then put the Vercel address into Railway's `ALLOWED_ORIGINS` if you haven't yet.
+
+### Restarts and redeploys
+
+The rooms and games are in Turso, so they survive a server restart. After a restart, the browsers reconnect by themselves and continue as the same players. Players who don't reconnect within 30 seconds are removed from their rooms.
+
+### Running the production setup locally
 
 ```bash
-npm ci
 npm run build
-npm start
+npm start          # serves dist/ and /ws on http://localhost:3000
 ```
 
-The server listens on `PORT` (default 3000) and serves the built client from `dist/` plus the WebSocket at `/ws`, so the page and the server share one address. Put it behind a reverse proxy (nginx, Caddy) that terminates HTTPS and forwards WebSocket upgrades; the client uses `wss://` automatically when the page is on HTTPS.
+Without `TURSO_DATABASE_URL` the server uses a local file, `data/mazegame.sqlite`. To use Turso locally, set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in the environment first. [`.env.example`](.env.example) lists every setting.
 
-It needs a host that runs a long-lived Node process with a writable disk for the SQLite file, for example a VPS, Fly.io, Railway or Render with a persistent volume. Static hosts and serverless platforms (GitHub Pages, Vercel, Netlify) can't run it.
-
-Environment variables:
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `PORT` | `3000` | HTTP and WebSocket port |
-| `DB_FILE` | `data/mazegame.sqlite` | SQLite database file (the folder is created if needed) |
-| `ALLOWED_ORIGINS` | *(none)* | Extra page origins allowed to open a WebSocket, comma separated. The server's own host and `localhost` are always allowed. |
+| Variable | Where | Default | Meaning |
+| --- | --- | --- | --- |
+| `VITE_SERVER_URL` | Vercel (build time) | `/ws` on the page's host | The server's WebSocket address |
+| `TURSO_DATABASE_URL` | Railway | local file `data/mazegame.sqlite` | Database URL |
+| `TURSO_AUTH_TOKEN` | Railway | *(none)* | Turso token |
+| `ALLOWED_ORIGINS` | Railway | *(none)* | Page origins allowed to connect, comma separated; `*` matches part of a host name. The server's own host and `localhost` are always allowed. |
+| `PORT` | Railway (automatic) | `3000` | HTTP and WebSocket port |
 
 ## How the server works
 
 - Each browser tab opens one WebSocket and logs in with a name. The server gives it a user id and a secret token. Every tab is a separate player.
 - The server is the only one that writes the data, and it checks every request: at most 6 players per room, one room per user, a game can't be joined after it started, and only the player whose turn it is (or the first real player, who plays the fake players' turns and removes players who left) can save the game.
 - **Presence** is the connection itself. A closed tab closes its socket; a ping every 15 seconds catches connections that died without closing. The server then waits 10 seconds: if the tab reconnects with its token in that time, it continues as the same player. Otherwise it's removed from its room.
-- When the server restarts, all connections are gone, so it empties all rooms and resets the practice rooms.
+- When the server restarts, the rooms and games stay in the database. Players have 30 seconds to reconnect; after that, a sweep every 15 seconds removes room players who have no connection.
 
-### Data layout (SQLite)
+### Data layout (SQLite / Turso)
 
 | Table | Contents |
 | --- | --- |
@@ -88,9 +134,9 @@ Environment variables:
 ```
 index.html              Page shell and fonts
 server/
-  index.ts              HTTP server (serves dist/), WebSockets, heartbeat, reconnects
+  index.ts              WebSockets, heartbeat, reconnects, /health (and dist/ when present)
   store.ts              Rooms, games and users: every rule is checked here
-  db.ts                 SQLite (sqlite3 package) and the schema
+  db.ts                 Database (libSQL client: Turso or a local file) and the schema
 src/
   index.ts              Router: login → lobby → room → game
   connection.ts         The WebSocket to the server: requests, subscriptions, reconnecting

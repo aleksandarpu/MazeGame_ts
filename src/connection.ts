@@ -29,7 +29,14 @@ const pending = new Map<number, Pending>();
 const outbox: { id: number; request: ClientRequest }[] = [];
 const listeners = new Map<Topic, Set<Handler>>();
 
+/**
+ * The game server's WebSocket: VITE_SERVER_URL when set at build time (production:
+ * the Railway server, e.g. wss://mazegame.up.railway.app/ws), otherwise /ws on this
+ * page's host (development: Vite forwards it to localhost:3000).
+ */
 function serverUrl(): string {
+  const configured = import.meta.env.VITE_SERVER_URL as string | undefined;
+  if (configured) return configured;
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${location.host}/ws`;
 }

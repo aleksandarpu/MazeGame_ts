@@ -63,20 +63,27 @@ export class Store {
   constructor(private db: Db) {}
 
   /**
-   * Creates the mock rooms and clears what a restart left behind: every connection
-   * is gone, so all users are offline and all real players leave their rooms.
+   * Creates missing mock rooms and marks every user offline (no connections yet after a
+   * start). Rooms and games are kept: their players can resume after a restart or a
+   * redeploy, and the server removes those who don't come back (sweep in index.ts).
    */
   async init(): Promise<void> {
     await this.db.transaction(async () => {
-      await this.db.run("UPDATE users SET state = 'offline', room_id = NULL, last_changed = ?", [Date.now()]);
-      await this.db.run("DELETE FROM room_players WHERE is_mock = 0");
-      await this.db.run("DELETE FROM rooms WHERE is_mock = 0");
-      for (const seed of mockRoomSeeds) await this.resetMockRoom(seed);
+      await this.db.run("UPDATE users SET state = 'offline', last_changed = ?", [Date.now()]);
+      for (const seed of mockRoomSeeds) {
+        if (!(await this.getRoom(seed.id))) await this.resetMockRoom(seed);
+      }
     });
   }
 
+  /** Ids of all real players in rooms. */
+  async playersInRooms(): Promise<string[]> {
+    const rows = await this.db.all<{ user_id: string }>("SELECT DISTINCT user_id FROM room_players WHERE is_mock = 0");
+    return rows.map((row) => row.user_id);
+  }
+
   private async resetMockRoom(seed: (typeof mockRoomSeeds)[number]) {
-    await this.db.run("DELETE FROM rooms WHERE id = ?", [seed.id]); // Cascades to its players and game
+    await this.deleteRoom(seed.id);
     await this.db.run(
       "INSERT INTO rooms (id, name, status, host_id, is_mock, game_id, created_at) VALUES (?, ?, 'waiting', '', 1, '', 0)",
       [seed.id, seed.name] // created_at 0: first in the list, and stays there after a reset
@@ -87,6 +94,13 @@ export class Store {
         [seed.id, userId, member.name, member.status, member.joinedAt]
       );
     }
+  }
+
+  /** Deletes the room with its players and game. */
+  private async deleteRoom(roomId: string) {
+    await this.db.run("DELETE FROM room_players WHERE room_id = ?", [roomId]);
+    await this.db.run("DELETE FROM games WHERE room_id = ?", [roomId]);
+    await this.db.run("DELETE FROM rooms WHERE id = ?", [roomId]);
   }
 
   // ==========================================
@@ -231,7 +245,7 @@ export class Store {
     if (realLeft.length === 0) {
       const seed = mockRoomSeeds.find((s) => s.id === roomId);
       if (room.isMock && seed) await this.resetMockRoom(seed);
-      else await this.db.run("DELETE FROM rooms WHERE id = ?", [roomId]);
+      else await this.deleteRoom(roomId);
       changes.games.add(roomId); // The game (if any) went with it
       return changes;
     }

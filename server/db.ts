@@ -1,25 +1,27 @@
-import sqlite3 from "sqlite3";
+import { createClient, Client, InStatement, Transaction } from "@libsql/client";
 
-// Thin promise wrapper around the sqlite3 package, plus the schema.
+// Thin wrapper around the libSQL client, plus the schema. In production the database
+// is on Turso (TURSO_DATABASE_URL + TURSO_AUTH_TOKEN); without them it's a local
+// SQLite file, so development needs no account.
 //
 //   rooms        (id, name, status, host_id, is_mock, game_id, created_at)
 //   room_players (room_id, user_id, name, status, joined_at, is_mock)
 //   games        (room_id, game_id, width, maze, state)   state = SyncedGameState as JSON
-//   users        (id, name, token, state, room_id, last_changed)   presence, replaces RTDB status/{userId}
+//   users        (id, name, token, state, room_id, last_changed)   presence
+//
+// Deletes remove the child rows explicitly (store.ts) instead of relying on
+// ON DELETE CASCADE, because foreign keys aren't enforced on every connection.
 
 export type Db = {
   run(sql: string, params?: unknown[]): Promise<void>;
   get<T>(sql: string, params?: unknown[]): Promise<T | undefined>;
   all<T>(sql: string, params?: unknown[]): Promise<T[]>;
-  /** Runs `work` inside BEGIN / COMMIT, rolling back if it throws. */
+  /** Runs `work` in a write transaction; run / get / all inside it use the transaction. */
   transaction<T>(work: () => Promise<T>): Promise<T>;
-  close(): Promise<void>;
+  close(): void;
 };
 
 const schema = `
-  PRAGMA journal_mode = WAL;
-  PRAGMA foreign_keys = ON;
-
   CREATE TABLE IF NOT EXISTS rooms (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -31,7 +33,7 @@ const schema = `
   );
 
   CREATE TABLE IF NOT EXISTS room_players (
-    room_id   TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    room_id   TEXT NOT NULL,
     user_id   TEXT NOT NULL,
     name      TEXT NOT NULL,
     status    TEXT NOT NULL DEFAULT 'waiting',
@@ -41,7 +43,7 @@ const schema = `
   );
 
   CREATE TABLE IF NOT EXISTS games (
-    room_id TEXT PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
+    room_id TEXT PRIMARY KEY,
     game_id TEXT NOT NULL,
     width   INTEGER NOT NULL,
     maze    TEXT NOT NULL,
@@ -58,34 +60,42 @@ const schema = `
   );
 `;
 
-export async function openDb(file: string): Promise<Db> {
-  const raw = await new Promise<sqlite3.Database>((resolve, reject) => {
-    const db = new sqlite3.Database(file, (error) => (error ? reject(error) : resolve(db)));
-  });
+export async function openDb(url: string, authToken?: string): Promise<Db> {
+  const client: Client = createClient({ url, authToken });
+  await client.executeMultiple(schema);
 
-  const db: Db = {
-    run: (sql, params = []) =>
-      new Promise((resolve, reject) => raw.run(sql, params, (error) => (error ? reject(error) : resolve()))),
-    get: <T>(sql: string, params: unknown[] = []) =>
-      new Promise<T | undefined>((resolve, reject) =>
-        raw.get(sql, params, (error, row) => (error ? reject(error) : resolve(row as T | undefined)))),
-    all: <T>(sql: string, params: unknown[] = []) =>
-      new Promise<T[]>((resolve, reject) =>
-        raw.all(sql, params, (error, rows) => (error ? reject(error) : resolve(rows as T[])))),
-    async transaction(work) {
-      await db.run("BEGIN IMMEDIATE");
-      try {
-        const result = await work();
-        await db.run("COMMIT");
-        return result;
-      } catch (error) {
-        await db.run("ROLLBACK");
-        throw error;
-      }
-    },
-    close: () => new Promise((resolve, reject) => raw.close((error) => (error ? reject(error) : resolve()))),
+  // The open transaction, if any. The server runs one operation at a time
+  // (serialize in index.ts), so there is never more than one.
+  let tx: Transaction | null = null;
+
+  const execute = async (sql: string, params: unknown[] = []) => {
+    const statement = { sql, args: params } as InStatement;
+    const result = await (tx ?? client).execute(statement);
+    // Plain objects keyed by column name
+    return result.rows.map((row) => Object.fromEntries(result.columns.map((column, i) => [column, row[i]])));
   };
 
-  await new Promise<void>((resolve, reject) => raw.exec(schema, (error) => (error ? reject(error) : resolve())));
-  return db;
+  return {
+    run: async (sql, params) => {
+      await execute(sql, params);
+    },
+    get: async <T>(sql: string, params?: unknown[]) => (await execute(sql, params))[0] as T | undefined,
+    all: async <T>(sql: string, params?: unknown[]) => (await execute(sql, params)) as T[],
+    async transaction(work) {
+      if (tx) return work(); // Already inside one
+      tx = await client.transaction("write");
+      try {
+        const result = await work();
+        await tx.commit();
+        return result;
+      } catch (error) {
+        await tx.rollback().catch(() => {});
+        throw error;
+      } finally {
+        tx.close();
+        tx = null;
+      }
+    },
+    close: () => client.close(),
+  };
 }

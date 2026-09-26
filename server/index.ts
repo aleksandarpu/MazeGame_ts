@@ -6,20 +6,30 @@ import { openDb } from "./db";
 import { Changes, cleanName, RequestError, Store } from "./store";
 import type { ClientMessage, ServerMessage, Topic } from "../src/protocol";
 
-// The game server: serves the built client from dist/ and runs the rooms and games
-// over WebSockets at /ws. Presence is the WebSocket itself: a closed tab closes its
-// socket, and a heartbeat (ping / pong) catches connections that die silently.
-// A user who drops out gets RECONNECT_GRACE_MS to come back (connection.ts resumes
-// with its token) before they are removed from their room.
+// The game server (deployed on Railway): runs the rooms and games over WebSockets
+// at /ws. Presence is the WebSocket itself: a closed tab closes its socket, and a
+// heartbeat (ping / pong) catches connections that die silently. A user who drops
+// out gets RECONNECT_GRACE_MS to come back (connection.ts resumes with its token)
+// before they are removed from their room.
+// It also serves the built client from dist/ if there is one (local testing; in
+// production the client is on Vercel), and GET /health for Railway's health check.
+// Run a single instance: the operation queue and the connections live in memory.
 
 const PORT = Number(process.env.PORT ?? 3000);
-const DB_FILE = process.env.DB_FILE ?? path.resolve(__dirname, "../data/mazegame.sqlite");
+// Turso in production; a local SQLite file otherwise
+const DATABASE_URL = process.env.TURSO_DATABASE_URL ||
+  "file:" + path.resolve(__dirname, "../data/mazegame.sqlite").replace(/\\/g, "/");
+const DATABASE_TOKEN = process.env.TURSO_AUTH_TOKEN || undefined;
 const DIST_DIR = path.resolve(__dirname, "../dist");
-// Extra origins allowed to open a WebSocket, comma separated (the page's own host is always allowed)
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+// Page origins allowed to open a WebSocket, comma separated; "*" matches any part of a
+// host name, e.g. "https://mazegame.vercel.app,https://mazegame-*.vercel.app".
+// The server's own host and localhost are always allowed.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+  .map((pattern) => new RegExp("^" + pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[a-z0-9-]*") + "$", "i"));
 
 const HEARTBEAT_MS = 15000;
 const RECONNECT_GRACE_MS = 10000;
+const STARTUP_GRACE_MS = 30000; // After a (re)start, time for players to resume before the sweep removes them
 const MAX_MESSAGE_BYTES = 64 * 1024;
 
 type Session = {
@@ -29,8 +39,8 @@ type Session = {
 };
 
 async function main() {
-  fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-  const db = await openDb(DB_FILE);
+  if (DATABASE_URL.startsWith("file:")) fs.mkdirSync(path.resolve(__dirname, "../data"), { recursive: true });
+  const db = await openDb(DATABASE_URL, DATABASE_TOKEN);
   const store = new Store(db);
   await store.init();
 
@@ -191,6 +201,18 @@ async function main() {
     });
   });
 
+  // Room players with no connection and no reconnect timer: players who didn't come back
+  // after a restart, or who were added by the old instance during a redeploy. Checked only
+  // after STARTUP_GRACE_MS, so players have time to resume after this server started.
+  const startedAt = Date.now();
+  const sweep = () =>
+    serialize(async () => {
+      if (Date.now() - startedAt < STARTUP_GRACE_MS) return;
+      for (const userId of await store.playersInRooms()) {
+        if (!socketOfUser.has(userId) && !leaveTimers.has(userId)) await broadcast(await store.disconnect(userId));
+      }
+    }).catch((error) => console.error("Sweep failed", error));
+
   // Connections that stopped answering pings are closed (then handled like a closed tab)
   const heartbeat = setInterval(() => {
     for (const [socket, session] of sessions) {
@@ -201,15 +223,19 @@ async function main() {
       session.alive = false;
       socket.ping();
     }
+    sweep();
   }, HEARTBEAT_MS);
 
-  server.listen(PORT, () => console.log(`Maze game server on http://localhost:${PORT} (database ${DB_FILE})`));
+  server.listen(PORT, () => console.log(`Maze game server on http://localhost:${PORT} (database ${DATABASE_URL.startsWith("file:") ? DATABASE_URL : "Turso"})`));
 
   const shutdown = () => {
     clearInterval(heartbeat);
     wss.clients.forEach((socket) => socket.terminate());
     server.close();
-    queue.finally(() => db.close()).finally(() => process.exit(0));
+    queue.finally(() => {
+      db.close();
+      process.exit(0);
+    });
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
@@ -223,7 +249,7 @@ function isAllowedOrigin(origin: string | undefined, host: string | undefined): 
   if (!origin) return true; // Not a browser
   try {
     const url = new URL(origin);
-    return url.host === host || ALLOWED_ORIGINS.includes(origin) ||
+    return url.host === host || ALLOWED_ORIGINS.some((pattern) => pattern.test(origin)) ||
       url.hostname === "localhost" || url.hostname === "127.0.0.1";
   } catch {
     return false;
@@ -258,6 +284,10 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
     pathname = decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname);
   } catch {
     res.writeHead(400).end();
+    return;
+  }
+  if (pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }).end("ok");
     return;
   }
   if (pathname.endsWith("/")) pathname += "index.html";
