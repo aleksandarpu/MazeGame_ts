@@ -9,7 +9,7 @@ Browser-based, turn-based multiplayer maze quiz game written in TypeScript: a cl
 ## Commands
 
 - `npm run dev:server` — game server (`tsx watch server/index.ts`) on port 3000. Run it next to `npm run dev`.
-- `npm run dev` — Vite dev server with HMR; `index.html` loads `/src/index.ts` directly. `vite.config.ts` proxies `/ws` to `ws://localhost:3000`.
+- `npm run dev` — Vite dev server with HMR; `index.html` loads `/src/index.ts` directly. `vite.config.mts` proxies `/ws` to `ws://localhost:3000`.
 - `npm run build` — `tsc` (type-checks `src/` and `server/`, `noEmit`) then `vite build` → bundled client in `dist/` (`dist/index.html` + hashed files in `dist/assets/`).
 - `npm start` — `tsx server/index.ts` on `PORT` (default 3000): WebSocket at `/ws`, `GET /health`, and `dist/` if it exists. Env: `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` (without them a local file `data/mazegame.sqlite`, git-ignored), `ALLOWED_ORIGINS` (comma separated, `*` matches part of a host name). `tsx` is a runtime dependency because the server runs from TypeScript. `.env.example` lists all settings.
 - `npx tsc` — type-check only.

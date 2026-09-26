@@ -18,7 +18,7 @@ It's a client–server application written in TypeScript. The browser client use
 
 ## Getting started
 
-Requirements: [Node.js](https://nodejs.org/) 20 or newer.
+Requirements: [Node.js](https://nodejs.org/) 20.19 or newer (22 LTS recommended).
 
 ```bash
 npm install
