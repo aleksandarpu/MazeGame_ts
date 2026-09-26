@@ -11,7 +11,7 @@ const playerColors = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1
 /** A new game for the room's players (in join order; the first one starts). */
 export function buildNewGame(gameId: string, members: { id: string; name: string; isMock?: boolean }[]): GameDoc {
   const maze = generateBraidedMaze(MAZE_SIZE, MAZE_SIZE);
-  placeFlagsInMaze(maze, 4, 2);
+  placeFlagsInMaze(maze, 4, 8);
   const players: Player[] = members.map((member, index) => ({
     id: member.id,
     name: member.name,
