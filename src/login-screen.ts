@@ -83,7 +83,7 @@ export function renderLoginScreen(
   const submitName = () => {
     const name = nameInput.value.trim();
     if (name) {
-      // Trigger the callback to save to Firestore and transition the view
+      // Trigger the callback to log in on the server and transition the view
       onLogin(name); 
     } else {
       // Basic validation feedback

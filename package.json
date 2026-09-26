@@ -2,12 +2,13 @@
   "name": "mazegame_ts",
   "version": "1.0.0",
   "description": "",
-  "main": "firebase_init.js",
+  "main": "server/index.ts",
   "scripts": {
     "dev": "vite",
+    "dev:server": "tsx watch server/index.ts",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "predeploy": "npm run build"
+    "start": "tsx server/index.ts",
+    "preview": "vite preview"
   },
   "keywords": [],
   "author": "",
@@ -15,10 +16,16 @@
   "type": "commonjs",
   "devDependencies": {
     "@types/node": "^26.6.2",
+    "@types/ws": "^8.18.1",
     "typescript": "^7.0.2",
     "vite": "^5.4.21"
   },
   "dependencies": {
-    "firebase": "^12.19.0"
+    "sqlite3": "^6.0.1",
+    "tsx": "^4.23.15",
+    "ws": "^8.21.3"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

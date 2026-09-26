@@ -193,7 +193,7 @@ export function renderGameRoomScreen(
     const toggleBtn = document.createElement("button");
     toggleBtn.className = me.status === "ready" ? "sc-btn orange" : "sc-btn green";
     toggleBtn.innerText = t(me.status === "ready" ? "room.setWaiting" : "room.setReady");
-    // The screen redraws with the new status once Firestore has the change
+    // The screen redraws with the new status once the server sends the room
     toggleBtn.onclick = () => onToggleStatus(me.status === "ready" ? "waiting" : "ready");
     actions.appendChild(toggleBtn);
   }

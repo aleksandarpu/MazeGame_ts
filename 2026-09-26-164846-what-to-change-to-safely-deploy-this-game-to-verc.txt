@@ -1,0 +1,1547 @@
+
+> what to change to safely deploy this game to vercel and protect firebase
+  connection
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Short answer: you don't hide the Firebase config. The apiKey in
+  src/firebase_init.ts only identifies your project. It ends up in the browser
+  bundle whatever you do, including if you move it into Vercel env vars. What
+  protects the database is security rules, Auth, App Check and API key
+  restrictions. Right now the app has no Auth and no rules files in the repo, so
+  anyone who copies the config from your JS can read, overwrite or delete every
+  room and presence entry.
+
+  Here's what I'd change, most important first.
+
+  1. Anonymous sign-in (needed for everything else)
+
+  - In firebase_init.ts, add getAuth(app) with setPersistence(auth,
+    inMemoryPersistence), then call signInAnonymously(auth) before login
+    finishes.
+    - The in-memory setting keeps your rule that each tab is its own player. The
+      default setting would give every tab the same uid.
+  - In src/presence.ts:20 (src/presence.ts#L20), replace the random clientUserId
+    with auth.currentUser.uid. Security rules can then check request.auth.uid.
+  - In the Firebase Console, turn on Authentication → Anonymous and add
+    your-app.vercel.app under Authorized domains.
+
+  2. Security rules (the real protection)
+
+  Add firestore.rules and database.rules.json to the repo and deploy them with
+  firebase deploy --only firestore:rules,database. As a starting point:
+
+  - RTDB status/$uid: signed-in users can read it, but only the owner can write
+    it (auth.uid === $uid). Validate that name is a short string and that state
+    is online or offline.
+  - gameRooms/{roomId}: a signed-in user is required. Limit the size of name,
+    allow at most 6 entries in players, and let a user add or change only their
+    own players[uid] entry.
+    - Removing other players has to stay allowed, because startRoomCleanup and
+      removePlayers do it. Rules can at least require that removals only shrink
+      the map.
+  - gameRooms/{roomId}/game/state: only players listed in the room can write it.
+  - Deny every other path.
+
+  Rules can't enforce the game logic itself (whose turn it is, dice values).
+  They stop outsiders and vandalism, not a determined cheater inside a room.
+  Stopping cheaters would need Cloud Functions, which is a much bigger change.
+
+  3. App Check
+
+  Register the web app with reCAPTCHA Enterprise and call
+  initializeAppCheck(...) in firebase_init.ts. Watch the metrics for a few days,
+  then turn on enforcement for Firestore and RTDB. After that, only requests
+  from your deployed site are accepted, not scripts using your copied config.
+
+  4. Restrict the API key
+
+  In Google Cloud Console → APIs & Services → Credentials, open the browser key:
+  - Application restriction: HTTP referrers https://your-app.vercel.app/* and
+    http://localhost:5173/*.
+  - API restriction: only the Firebase APIs you use (Identity Toolkit,
+    Firestore, Realtime Database, Firebase Installations, App Check).
+
+  If you're on the Blaze plan, also set a budget alert.
+
+  5. Vercel setup
+
+  - The framework preset is Vite: build command npm run build, output folder
+    dist. Your vite.config.ts already has base: "/", which is what Vercel needs.
+  - You can optionally move the config to VITE_FIREBASE_* env vars (in
+    .env.local, which you'd add to .gitignore, plus Vercel project settings).
+    That helps you switch between dev and prod projects, but it doesn't make the
+    key secret.
+  - You can optionally add a vercel.json with security headers
+    (X-Content-Type-Options, Referrer-Policy, and a CSP that allows
+    *.googleapis.com, *.firebaseio.com over wss:, Google Fonts and reCAPTCHA).
+  - .github/workflows/deploy.yml will keep publishing to GitHub Pages. If you
+    drop Pages, disable it or add the Pages domain to the referrer list.
+
+  The key is already in git history. That's fine once steps 2–4 are done,
+  because the restrictions are what matter, not keeping the key secret.
+
+  Do you want me to implement steps 1, 2 and 5 (Auth, both rules files,
+  vercel.json, env vars)? Steps 3 and 4, plus deploying the rules, have to be
+  done in the Firebase and Google Cloud consoles.
+
+> create branch 'on_node.js' and there switch from firebase to sqlite3 and any
+  library needed for user connection monitoring (instead of realtime database).
+  create as client server application
+  ⎿  1 skill available
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Creating the branch and installing the server libraries.
+
+● Bash(cd /h/Projects/MazeGame_ts; git checkout -b on_node.js && npm uninstall
+      firebase && npm install sqlite3 ws tsx && npm install -D @types/ws 2>&1 |
+      tail -5; grep…)
+  ⎿  Updated package.json (+4 -1)
+      15    "type": "commonjs",
+      16    "devDependencies": {
+      17      "@types/node": "^26.6.2",
+      18 +    "@types/ws": "^8.18.1",                                    
+      19      "typescript": "^7.0.2",
+      20      "vite": "^5.4.21"
+      21    },
+      22    "dependencies": {
+      22 -    "firebase": "^12.19.0"                                     
+      23 +    "sqlite3": "^6.0.1",                                       
+      24 +    "tsx": "^4.23.15",                                         
+      25 +    "ws": "^8.21.3"                                            
+      26    }
+      27  }
+  ⎿  … 1 more file changed
+  ⎿  (timeout 5m)
+
+● sqlite3 works (SQLite 3.52). Now the shared protocol and game setup modules.
+
+● Write(src\protocol.ts)
+  ⎿  Wrote 67 lines to src\protocol.ts
+       1 import type { SyncedGameState } from "./GameState";
+       2
+       3 // Messages between the browser (connection.ts) and the Node ser
+       4 // over one WebSocket per tab. Shared by both sides, so it must
+         not touch the DOM.
+       5
+       6 export const MAX_PLAYERS_PER_ROOM = 6;
+       8
+       9 export type RoomStatus = "waiting" | "started";
+      10 export type MemberStatus = "waiting" | "ready";
+     … +69 lines (ctrl+o to expand)
+
+● Write(src\game_setup.ts)
+  ⎿  Wrote 41 lines to src\game_setup.ts
+      1 import { generateBraidedMaze } from "./maze_generator";
+      2 import { placeFlagsInMaze } from "./place_flags_in_maze";
+      3 import { Player } from "./player";
+      4 import type { GameDoc } from "./protocol";
+      5
+        very room player is ready.
+      7
+      8 export const MAZE_SIZE = 15;
+      9 const playerColors = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12",
+         "#9b59b6", "#1abc9c"];
+     … +35 lines (ctrl+o to expand)
+
+● Now the server: SQLite layer.
+
+● Write(server\db.ts)
+  ⎿  Wrote 91 lines to server\db.ts
+       1 import sqlite3 from "sqlite3";
+       3 // Thin promise wrapper around the sqlite3 package, plus the sch
+         ema.
+       5 //   rooms        (id, name, status, host_id, is_mock, game_id,
+         created_at)
+         _mock)
+       7 //   games        (room_id, game_id, width, maze, state)   state
+       8 //   users        (id, name, token, state, room_id, last_changed
+         )   presence, replaces RTDB status/{userId}
+      10 export type Db = {
+     … +93 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the room/game logic (server-authoritative, one operation at a time).
+
+● Write(server\store.ts)
+  ⎿  Wrote 356 lines to server\store.ts
+       1 import { randomBytes } from "node:crypto";
+       2 import { Db } from "./db";
+       4 import type { SyncedGameState } from "../src/GameState";
+       5 import {
+       6   ErrorCode, GameDoc, MAX_NAME_LENGTH, MAX_PLAYERS_PER_ROOM, Mem
+       7 } from "../src/protocol";
+       8
+       9 // Rooms, games and users, stored in SQLite. The server is the o
+      10 // rule (6 players max, one room per user, who may save the game
+         ) is checked here.
+     … +431 lines (ctrl+o to expand)
+
+● Now the server entry: static file serving, WebSocket connections, heartbeat
+  and reconnect grace period.
+
+● Write(server\index.ts)
+  ⎿  Wrote 292 lines to server\index.ts
+       1 import http from "node:http";
+       3 import path from "node:path";
+       4 import { WebSocketServer, WebSocket } from "ws";
+       5 import { openDb } from "./db";
+         ";
+       7 import type { ClientMessage, ServerMessage, Topic } from "../src
+       8
+       9 // The game server: serves the built client from dist/ and runs
+         the rooms and games
+         losed tab closes its
+     … +330 lines (ctrl+o to expand)
+
+● Update(server\store.ts)
+  ⎿  Added 2 lines, removed 2 lines
+      78    private async resetMockRoom(seed: (typeof mockRoomSeeds)[numb
+          er]) {
+      79      await this.db.run("DELETE FROM rooms WHERE id = ?", [seed.i
+          d]); // Cascades to its players and game
+      80      await this.db.run(
+      81 -      "INSERT INTO rooms (id, name, status, host_id, is_mock, g
+         -ame_id, created_at) VALUES (?, ?, 'waiting', '', 1, '', ?)",   
+      82 -      [seed.id, seed.name, Date.now()]                         
+      81 +      "INSERT INTO rooms (id, name, status, host_id, is_mock, g
+         +ame_id, created_at) VALUES (?, ?, 'waiting', '', 1, '', 0)",   
+      82 +      [seed.id, seed.name] // created_at 0: first in the list, 
+         +and stays there after a reset                                  
+      83      );
+      84      for (const [userId, member] of Object.entries(seed.players)
+          ) {
+      85        await this.db.run(
+
+● Now the browser side: a connection module replacing Firebase and presence.
+
+● Write(src\connection.ts)
+  ⎿  Wrote 138 lines to src\connection.ts
+       1 import type { ClientRequest, ErrorCode, ReplyData, ServerMessage
+       2
+         r/index.ts).
+       4 // - request() sends a request and resolves with the server's re
+       5 // - subscribe() calls back with a topic's current value and eve
+       6 // If the connection drops, it reconnects and resumes as the sam
+       7 // the user in their room for a few seconds), then subscribes ag
+         ain. Requests made while
+         ws us, onSessionLost runs.
+      10 export class ServerError extends Error {
+     … +150 lines (ctrl+o to expand)
+
+● Bash(cd /h/Projects/MazeGame_ts; git rm -q src/firebase_init.ts
+      src/presence.ts; cat > src/rooms.ts <<'EOF'
+      import { request, subscribe } from "./connection";…)
+  ⎿  Deleted src\firebase_init.ts (+0 -27)
+       1 -import { initializeApp } from 'firebase/app';                  
+       2 -import { getFirestore } from "firebase/firestore";             
+       3 -import { getDatabase } from "firebase/database";               
+       4 -                                                               
+       5 -// Firestore holds lobby / game room / game data; the Realtime 
+         -Database is used                                               
+       6 -// only for presence, because it has .info/connected and onDisc
+         -onnect() (see presence.ts).                                    
+       7 -                                                               
+       8 -// Your web app's Firebase configuration                       
+       9 -const firebaseConfig = {                                       
+      10 -  apiKey: "AIzaSyD4D_8Vyvk8VqFclkvKzj71WJyOFQrO-iY",           
+         -    // Retrieve this from your Firebase Console Project Setting
+         -s                                                              
+      11 -  authDomain: "mayegama-ts.firebaseapp.com",                   
+      12 -  projectId: "mayegama-ts",                                    
+      13 -  storageBucket: "mayegama-ts.firebasestorage.app",            
+      14 -  messagingSenderId: "1083188534909",                          
+      15 -  appId: "1:1083188534909:web:5562d3b05b8f547c07db14",         
+         -        // Retrieve this from your Firebase Console Project Set
+         -tings                                                          
+      16 -  databaseURL: "https://mayegama-ts-default-rtdb.firebaseio.com
+         -",                                                             
+      17 -  measurementId: "G-8YZDFT2H0L"                                
+      18 -};                                                             
+      19 -                                                               
+      20 -// Initialize Firebase                                         
+      21 -const app = initializeApp(firebaseConfig);                     
+      22 -                                                               
+      23 -// Initialize Cloud Firestore and Realtime Database            
+      24 -const db = getFirestore(app);                                  
+      25 -const rtdb = getDatabase(app);                                 
+      26 -                                                               
+      27 -export { app, db, rtdb };                                      
+  ⎿  Updated src\games.ts (+15 -76)
+       1 -import { doc, onSnapshot, setDoc, Transaction, Unsubscribe } fr
+         -om "firebase/firestore";                                       
+       2 -import { db } from "./firebase_init";                          
+       1 +import { request, subscribe } from "./connection";             
+       2  import { GameState, SyncedGameState } from "./GameState";
+       4 -import { Cell, generateBraidedMaze } from "./maze_generator";  
+       5 -import { placeFlagsInMaze } from "./place_flags_in_maze";      
+       6 -import { Player } from "./player";                             
+       3 +import { Cell } from "./maze_generator";                       
+       4 +import type { GameDoc } from "./protocol";                     
+       5  
+       8 -// Firestore: gameRooms/{roomId}/game/state holds the running g
+         -ame:                                                           
+       9 -//   { gameId, width, maze (JSON string), players, phase, rollC
+         -ount, lastRoll,                                                
+      10 -//     question, answerCount, lastAnswerCorrect, lastAnswerText
+         -, winnerId }                                                   
+      11 -// The maze is a JSON string because Firestore doesn't allow ne
+         -sted arrays.                                                   
+      12 -// Only the client whose turn it is writes (see game.ts `publis
+         -h`); the others follow the snapshots.                          
+       6 +// The running game is kept by the server (games table), create
+         +d when the room starts                                         
+       7 +// (game_setup.ts). Only the client whose turn it is saves (see
+         + game.ts `publish`);                                           
+       8 +// the server sends each save to the room's other clients.     
+       9  
+      14 -export const MAZE_SIZE = 15;                                   
+      15 -const playerColors = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12
+         -", "#9b59b6", "#1abc9c"];                                      
+      16 -                                                               
+      17 -export type GameDoc = SyncedGameState & {                      
+      18 -  gameId: string; // Same id as the room's gameId, so a stale c
+         -ached game from before is ignored                              
+      19 -  width: number;                                               
+      20 -  maze: string;                                                
+      21 -};                                                             
+      22 -                                                               
+      23 -export function gameRef(roomId: string) {                      
+      24 -  return doc(db, "gameRooms", roomId, "game", "state");        
+      25 -}                                                              
+      26 -                                                               
+      27 -/** A new game for the room's players (in join order; the first
+         - one starts). */                                               
+      28 -export function buildNewGame(gameId: string, members: { id: str
+         -ing; name: string; isMock?: boolean }[]): GameDoc {            
+      29 -  const maze = generateBraidedMaze(MAZE_SIZE, MAZE_SIZE);      
+      30 -  placeFlagsInMaze(maze, 4, 2);                                
+      31 -  const players: Player[] = members.map((member, index) => ({  
+      32 -    id: member.id,                                             
+      33 -    name: member.name,                                         
+      34 -    x: 0,                                                      
+     … 63 more lines (ctrl+o to expand)
+  ⎿  Deleted src\presence.ts (+0 -89)
+       1 -import { ref, set, update, onValue, onDisconnect, serverTimesta
+         -mp, Unsubscribe } from "firebase/database";                    
+       2 -import { rtdb } from "./firebase_init";                        
+       3 -                                                               
+       4 -// Presence lives in the Realtime Database at status/{userId}: 
+       5 -//   { name, state: "online" | "offline", roomId, lastChanged }
+       6 -// onDisconnect() makes the Firebase server flip it to "offline
+         -" when the tab closes                                          
+       7 -// or the connection drops, so other clients can tell who is st
+         -ill here.                                                      
+       8 -                                                               
+       9 -export type PresenceState = "online" | "offline";              
+      10 -                                                               
+      11 -export type UserPresence = {                                   
+      12 -  name: string;                                                
+      13 -  state: PresenceState;                                        
+      14 -  roomId: string | null; // Game room the user is in, null whil
+         -e in the lobby                                                 
+      15 -  lastChanged: number;                                         
+      16 -};                                                             
+      17 -                                                               
+      18 -// A fresh id per page load, so every tab is a separate player.
+         - It isn't stored in                                            
+      19 -// sessionStorage because "Duplicate tab" copies that, giving t
+         -wo tabs the same id.                                           
+      20 -const clientUserId = `uid_${crypto.randomUUID().replace(/-/g, "
+         -").slice(0, 16)}`;                                             
+      21 -                                                               
+      22 -/** Returns this page's user id. */                            
+      23 -export function getClientUserId(): string {                    
+      24 -  return clientUserId;                                         
+      25 -}                                                              
+      26 -                                                               
+      27 -let currentUserId = "";                                        
+      28 -let currentName = "";                                          
+      29 -let currentRoomId: string | null = null;                       
+      30 -let stopConnectedListener: Unsubscribe | null = null;          
+      31 -                                                               
+      32 -/**                                                            
+      33 - * Marks the user online and keeps it that way across reconnect
+         -s.                                                             
+      34 - * Returns a function that marks the user offline and stops tra
+         -cking.                                                         
+      35 - */                                                            
+      36 -export function startPresence(userId: string, name: string): ()
+         - => Promise<void> {                                            
+      37 -  stopConnectedListener?.();                                   
+      38 -  currentUserId = userId;                                      
+      39 -  currentName = name;                                          
+      40 -  currentRoomId = null;                                        
+     … 49 more lines (ctrl+o to expand)
+  ⎿  Updated src\rooms.ts (+27 -246)
+       1 -import {                                                       
+       2 -  collection, doc, onSnapshot, runTransaction, setDoc, deleteFi
+         -eld, serverTimestamp, Unsubscribe,                             
+       3 -} from "firebase/firestore";                                   
+       4 -import { db } from "./firebase_init";                          
+       5 -import { UserPresence, watchPresence } from "./presence";      
+       6 -import { t } from "./i18n";                                    
+       7 -import { buildNewGame, createGameInTransaction, deleteGameInTra
+         -nsaction } from "./games";                                     
+       1 +import { request, subscribe } from "./connection";             
+       2 +import { MemberStatus, Room, RoomMember } from "./protocol";   
+       3  
+       9 -// Firestore: gameRooms/{roomId}                               
+      10 -//   { name, status, hostId, createdAt, isMock?, gameId?, playe
+         -rs: { [userId]: RoomMember } }                                 
+      11 -// The running game is in the subcollection document gameRooms/
+         -{roomId}/game/state (games.ts).                                
+      12 -// Players are a map keyed by user id, so joining / leaving / t
+         -oggling ready                                                  
+      13 -// touches one field (players.<userId>) instead of rewriting an
+         - array.                                                        
+       4 +// Rooms live on the server (server/store.ts, SQLite). This mod
+         +ule sends the requests                                         
+       5 +// and follows the updates the server pushes. The server remove
+         +s players whose tab                                            
+       6 +// closed or whose connection died, deletes rooms left empty, r
+         +esets the mock rooms                                           
+       7 +// and starts the game once every player is ready.             
+       8  
+      15 -export const MAX_PLAYERS_PER_ROOM = 6;                         
+      16 -                                                               
+      17 -export type RoomStatus = "waiting" | "started";                
+      18 -export type MemberStatus = "waiting" | "ready";                
+      19 -                                                               
+      20 -export type RoomMember = {                                     
+      21 -  name: string;                                                
+      22 -  status: MemberStatus;                                        
+      23 -  joinedAt: number; // Date.now() of the joining client; orders
+         - the players in the game                                       
+      24 -  isMock?: boolean; // Seeded fake player: always ready, never 
+         -removed by the cleanup                                         
+      25 -};                                                             
+      26 -                                                               
+      27 -export type Room = {                                           
+      28 -  id: string;                                                  
+      29 -  name: string;                                                
+      30 -  status: RoomStatus;                                          
+      31 -  hostId: string;                                              
+      32 -  isMock?: boolean; // Seeded room: never deleted, reset to its
+         - seed when the real players leave                              
+      33 -  gameId: string; // Id of the game started in this room ("" be
+         -fore the start)                                                
+      34 -  players: Record<string, RoomMember>;                         
+     … 255 more lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bash(cd /h/Projects/MazeGame_ts; sed -i 's|^    "room.error.full": "This room
+      is full.",$|&\n    "connection.lost": "The connection to the server was
+      lost. The page…)
+  ⎿  Updated assets\lang\en.json (+1 -0)
+      36      "room.error.notFound": "This room no longer exists.",
+      37      "room.error.started": "This game has already started.",
+      38      "room.error.full": "This room is full.",
+      39 +    "connection.lost": "The connection to the server was lost. 
+         +The page will reload.",                                        
+      40  
+      41      "game.mute": "Mute:",
+      42      "game.scoreboard": "Scoreboard",
+  ⎿  Updated assets\lang\sr.json (+1 -0)
+      36      "room.error.notFound": "Ова соба више не постоји.",
+      37      "room.error.started": "Ова игра је већ почела.",
+      38      "room.error.full": "Ова соба је пуна.",
+      39 +    "connection.lost": "Веза са сервером је прекинута. Страница
+         + ће се поново учитати.",                                       
+      40  
+      41      "game.mute": "Без звука:",
+      42      "game.scoreboard": "Резултати",
+
+● Now updating the router in src/index.ts.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll put the script in a file instead of a heredoc.
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(src\index.ts)
+  ⎿  Added 2 lines, removed 7 lines
+       7  import { showResultPopup } from "./answer-pop-up";
+       8  import { showVictoryPopup as renderVictoryPopup } from "./victo
+          ry-pop-up";
+       9  import { t } from "./i18n";
+      10 -import { getClientUserId, startPresence, setPresenceRoom } from
+         - "./presence";                                                 
+      10 +import { login, ServerError } from "./connection";             
+      11  import {
+      12 -  Room, RoomMember, sortedMembers, seedMockRooms, watchRooms, w
+         -atchRoom, newRoomId, createRoom,                               
+      13 -  joinRoom, leaveRoom, setMemberStatus, startRoomIfAllReady, st
+         -artRoomCleanup,                                                
+      12 +  Room, RoomMember, sortedMembers, watchRooms, watchRoom, creat
+         +eRoom, joinRoom, leaveRoom, setMemberStatus,                   
+      13  } from "./rooms";
+      14  
+      16 -//const path = require('path');                                
+      17 -// Inside your server code, pointing to root index.html from di
+         -st/                                                            
+      18 -//res.sendFile(path.join(__dirname, '../index.html'));         
+      19 -                                                               
+      15  // Main Application Container
+      16  const appContainer = document.getElementById("app-container") a
+          s HTMLElement;
+      17  
+
+● Update(src\index.ts)
+  ⎿  Added 2 lines, removed 2 lines
+      19  const appState = {
+      20    currentUserId: "",
+      21    currentUserName: "",
+      22 -  currentRoomId: "", // Firestore gameRooms id the user is in, 
+         -"" in the lobby                                                
+      22 +  currentRoomId: "", // Id of the room the user is in, "" in th
+         +e lobby                                                        
+      23  };
+      24  
+      25 -// Stops the current screen's Firestore listeners / game loop b
+         -efore the next screen                                          
+      25 +// Stops the current screen's server subscriptions / game loop 
+         +before the next screen                                         
+      26  let stopCurrentScreen: (() => void) | null = null;
+      27  function leaveCurrentScreen() {
+      28    stopCurrentScreen?.();
+
+● Update(src\index.ts)
+  ⎿  Added 19 lines, removed 14 lines
+      37   * 1. Login Controller
+      38   */
+      39  function navigateToLogin() {
+      40 -  renderLoginScreen(appContainer, (playerName: string) => {    
+      41 -    appState.currentUserId = getClientUserId();                
+      42 -    appState.currentUserName = playerName;                     
+      43 -    // Track the connection in the Realtime Database (status/{u
+         -serId})                                                        
+      44 -    startPresence(appState.currentUserId, playerName);         
+      45 -    // Remove disconnected players from rooms, delete rooms lef
+         -t empty                                                        
+      46 -    startRoomCleanup();                                        
+      47 -    seedMockRooms().catch((error) => console.error("Rooms: coul
+         -d not create the mock rooms", error));                         
+      48 -                                                               
+      49 -    // After successful login go to lobby screen[cite: 1]      
+      50 -    navigateToLobby();                                         
+      40 +  let busy = false;                                            
+      41 +  renderLoginScreen(appContainer, async (playerName: string) =>
+         + {                                                             
+      42 +    if (busy) return;                                          
+      43 +    busy = true;                                               
+      44 +    try {                                                      
+      45 +      // Connects to the server, which tracks this tab's connec
+         +tion from now on.                                              
+      46 +      // If it drops for longer than the server waits, the page
+         + reloads to the login.                                         
+      47 +      appState.currentUserId = await login(playerName, () => { 
+      48 +        alert(t("connection.lost"));                           
+      49 +        location.reload();                                     
+      50 +      });                                                      
+      51 +      appState.currentUserName = playerName;                   
+      52 +      navigateToLobby();                                       
+      53 +    } catch (error) {                                          
+      54 +      console.error("Could not log in", error);                
+      55 +      busy = false;                                            
+      56 +    }                                                          
+      57    });
+      58  }
+      59  
+      54 -/** Leaves the current room in Firestore first, then clears the
+         - room from presence. */                                        
+      60 +/** Leaves the current room on the server. */                  
+      61  async function leaveCurrentRoom() {
+      62    const roomId = appState.currentRoomId;
+      63    if (!roomId) return;
+      64    appState.currentRoomId = "";
+      65    try {
+      60 -    await leaveRoom(roomId, appState.currentUserId);           
+      66 +    await leaveRoom(roomId);                                   
+      67    } catch (error) {
+      68      console.error("Rooms: could not leave the room", error);
+      69    }
+      64 -  setPresenceRoom(null).catch((error) => console.error("Presenc
+         -e: could not clear the room", error));                         
+      70  }
+      71  
+      72  /**
+
+● Update(src\index.ts)
+  ⎿  Added 6 lines, removed 12 lines
+       76    leaveCurrentScreen();
+       77    leaveCurrentRoom();
+       78  
+       79 -  const userId = appState.currentUserId;                      
+       79    const userName = appState.currentUserName;
+       80    let busy = false; // A create / join is in progress
+       81  
+       83 -  // Presence points at the room before the room lists the pla
+          -yer, so the                                                   
+       84 -  // cleanup never sees a room player whose presence says "in 
+          -the lobby".                                                   
+       85 -  const enterRoom = async (roomId: string, writeRoom: () => Pr
+          -omise<void>, failMessage: string) => {                        
+       82 +  const enterRoom = async (writeRoom: () => Promise<string>, f
+          +ailMessage: string) => {                                      
+       83      if (busy) return;
+       84      busy = true;
+       85      try {
+       89 -      await setPresenceRoom(roomId);                          
+       90 -      await writeRoom();                                      
+       91 -      appState.currentRoomId = roomId;                        
+       86 +      appState.currentRoomId = await writeRoom();             
+       87        navigateToGameRoom();
+       88      } catch (error) {
+       89        console.error(failMessage, error);
+       95 -      alert(error instanceof Error && !(error as any).code ? e
+          -rror.message : failMessage);                                  
+       96 -      setPresenceRoom(null).catch(() => {});                  
+       90 +      const code = error instanceof ServerError ? error.code :
+          + "";                                                          
+       91 +      alert(code === "notFound" || code === "started" || code 
+          +=== "full" ? t(`room.error.${code}`) : failMessage);          
+       92        busy = false;
+       93      }
+       94    };
+       95  
+       96    const handleCreateRoom = (roomName: string) => {
+      102 -    const roomId = newRoomId();                               
+      103 -    enterRoom(roomId, () => createRoom(roomId, roomName, userI
+          -d, userName), t("lobby.createFailed"));                       
+       97 +    enterRoom(() => createRoom(roomName), t("lobby.createFaile
+          +d"));                                                         
+       98    };
+       99  
+      100    const handleJoinRoom = (roomId: string) => {
+      107 -    enterRoom(roomId, () => joinRoom(roomId, userId, userName)
+          -, t("lobby.joinFailed"));                                     
+      101 +    enterRoom(() => joinRoom(roomId).then(() => roomId), t("lo
+          +bby.joinFailed"));                                            
+      102    };
+      103  
+      104    const updateRooms = renderLobbyScreen(appContainer, userName
+           , handleCreateRoom, handleJoinRoom);
+
+● Update(src\index.ts)
+  ⎿  Added 3 lines, removed 2 lines
+      123    let started = false;
+      124  
+      125    const handleToggleStatus = (newStatus: "waiting" | "ready") 
+           => {
+      126 -    // The screen redraws from the room snapshot once Firestor
+          -e has the change                                              
+      127 -    setMemberStatus(roomId, userId, newStatus).catch((error) =
+          -> console.error("Rooms: could not change status", error));    
+      126 +    // The screen redraws from the room update the server send
+          +s; once everyone                                              
+      127 +    // is ready the server starts the game and the room turns 
+          +"started"                                                     
+      128 +    setMemberStatus(roomId, newStatus).catch((error) => consol
+          +e.error("Rooms: could not change status", error));            
+      129    };
+      130  
+      131    stopCurrentScreen = watchRoom(roomId, (room, fromCache) => {
+
+● Update(src\index.ts)
+  ⎿  Added 2 lines, removed 5 lines
+      128      setMemberStatus(roomId, newStatus).catch((error) => consol
+           e.error("Rooms: could not change status", error));
+      129    };
+      130  
+      131 -  stopCurrentScreen = watchRoom(roomId, (room, fromCache) => {
+      131 +  stopCurrentScreen = watchRoom(roomId, (room) => {           
+      132      if (started) return;
+      133  
+      134 -    // Room deleted, or we were removed from it (e.g. by the c
+          -leanup after a disconnect).                                   
+      135 -    // Only trust the server here: right after joining, the ca
+          -ched room may not list us yet.                                
+      134 +    // Room deleted, or we were removed from it (e.g. after a 
+          +long disconnect)                                              
+      135      if (!room || !room.players[userId]) {
+      137 -      if (fromCache) return;                                  
+      136        appState.currentRoomId = "";
+      139 -      setPresenceRoom(null).catch(() => {});                  
+      137        navigateToLobby();
+      138        return;
+      139      }
+
+● Update(src\index.ts)
+  ⎿  Removed 4 lines
+      155        handleToggleStatus,
+      156        navigateToLobby
+      157      );
+      158 -                                                              
+      159 -    if (members.every((member) => member.status === "ready")) 
+          -{                                                             
+      160 -      startRoomIfAllReady(roomId).catch((error) => console.err
+          -or("Rooms: could not start the game", error));                
+      161 -    }                                                         
+      158    });
+      159  }
+      160  
+
+● Update(src\index.ts)
+  ⎿  Added 2 lines, removed 2 lines
+      161  /**
+      162   * 4. Game Play Controller
+      163   *
+      164 - * The game lives in Firestore (gameRooms/{roomId}/game/state,
+          - created when the room started).                              
+      165 - * The client whose turn it is saves every change; all clients
+          - follow the snapshots.                                        
+      164 + * The server keeps the game (created when the room started). 
+          +The client whose turn                                         
+      165 + * it is saves every change; the server sends it to the other 
+          +clients.                                                      
+      166   */
+      167  function navigateToGamePlay(roomId: string, gameId: string) {
+      168    leaveCurrentScreen();
+
+● Update(src\index.ts)
+  ⎿  Added 9 lines, removed 1 line
+      172    let screen: GameScreen | null = null;
+      173    let roomMembers: Record<string, RoomMember> | null = null;
+      174  
+      175 +  let savesInFlight = 0;                                      
+      176    const publish = () => {
+      177      if (!gameState) return;
+      177 -    saveGame(roomId, syncedPart(gameState)).catch((error) => c
+          -onsole.error("Game: could not save", error));                 
+      178 +    savesInFlight++;                                          
+      179 +    saveGame(roomId, gameId, syncedPart(gameState))           
+      180 +      .catch((error) => {                                     
+      181 +        // Lost with the connection: save the latest state aga
+          +in once reconnected                                           
+      182 +        if (!(error instanceof ServerError)) publish();       
+      183 +        else console.error("Game: could not save", error);    
+      184 +      })                                                      
+      185 +      .finally(() => savesInFlight--);                        
+      186    };
+      187  
+      188    const showVictoryPopup = () => {
+
+● Update(src\index.ts)
+  ⎿  Added 5 lines, removed 3 lines
+      202      if (keeper?.id === userId) screen.removePlayers(gone);
+      203    };
+      204  
+      205 -  const stopGame = watchGame(roomId, (game, ownPending) => {  
+      206 -    if (!game || game.gameId !== gameId) return; // Not create
+          -d yet, or a previous game of this room                        
+      207 -    if (ownPending && gameState) return; // Echo of our own sa
+          -ves; gameState is already ahead of it                         
+      205 +  const stopGame = watchGame(roomId, (game) => {              
+      206 +    if (!game || game.gameId !== gameId) return; // Deleted, o
+          +r a later game of this room                                   
+      207 +    // While our saves are on the way, the server's copy is be
+          +hind ours                                                     
+      208 +    // (e.g. the current value it sends again after a reconnec
+          +t)                                                            
+      209 +    if (savesInFlight > 0 && gameState) return;               
+      210      if (!gameState) {
+      211        gameState = gameStateFromDoc(game);
+      212        screen = renderGamePlayScreen(appContainer, gameState, {
+
+● Update(src\index.ts)
+  ⎿  Added 2 lines, removed 2 lines
+      221      }
+      222    });
+      223  
+      224 -  const stopRoom = watchRoom(roomId, (room, fromCache) => {   
+      225 -    if (!room || fromCache) return;                           
+      224 +  const stopRoom = watchRoom(roomId, (room) => {              
+      225 +    if (!room) return;                                        
+      226      roomMembers = room.players;
+      227      dropPlayersWhoLeft();
+      228    });
+
+● Now config: scripts, Vite proxy for /ws, tsconfig, and .gitignore.
+
+● Bash(cd /h/Projects/MazeGame_ts; git rm -q server.js
+      node -e '…)
+  ⎿  Updated .gitignore (+3 -2)
+      1 -node_modules                                                    
+      2 -dist/                                                           
+      1 +node_modules                                                    
+      2 +dist/                                                           
+      3  __pycache__/
+      4 +data/                                                           
+  ⎿  Updated package.json (+7 -3)
+       2    "name": "mazegame_ts",
+       3    "version": "1.0.0",
+       4    "description": "",
+       5 -  "main": "firebase_init.js",                                  
+       5 +  "main": "server/index.ts",                                   
+       6    "scripts": {
+       7      "dev": "vite",
+       8 +    "dev:server": "tsx watch server/index.ts",                 
+       9      "build": "tsc && vite build",
+       9 -    "preview": "vite preview",                                 
+      10 -    "predeploy": "npm run build"                               
+      10 +    "start": "tsx server/index.ts",                            
+      11 +    "preview": "vite preview"                                  
+      12    },
+      13    "keywords": [],
+      14    "author": "",
+     ...
+      24      "sqlite3": "^6.0.1",
+      25      "tsx": "^4.23.15",
+      26      "ws": "^8.21.3"
+      27 +  },                                                           
+      28 +  "engines": {                                                 
+      29 +    "node": ">=20"                                             
+      30    }
+      31  }
+  ⎿  Deleted server.js (+0 -22)
+       1 -const http = require('http');                                  
+       2 -const fs = require('fs');                                      
+       3 -const path = require('path');                                  
+       4 -                                                               
+       5 -const PORT = 3000;                                             
+       6 -                                                               
+       7 -const server = http.createServer((req, res) => {               
+       8 -    // Read the index.html file                                
+       9 -    fs.readFile(path.join(__dirname, 'index.html'), (err, conte
+         -nt) => {                                                       
+      10 -        if (err) {                                             
+      11 -            res.writeHead(500, { 'Content-Type': 'text/plain' }
+         -);                                                             
+      12 -            res.end('Error loading index.html');               
+      13 -        } else {                                               
+      14 -            res.writeHead(200, { 'Content-Type': 'text/html' })
+         -;                                                              
+      15 -            res.end(content);                                  
+      16 -        }                                                      
+      17 -    });                                                        
+      18 -});                                                            
+      19 -                                                               
+      20 -server.listen(PORT, () => {                                    
+      21 -    console.log(`Server is running at http://localhost:${PORT}`
+         -);                                                             
+      22 -});                                                            
+  ⎿  Updated tsconfig.json (+2 -2)
+      1  {
+      2    "compilerOptions": {
+      3      "target": "ES2022",                          /* Specify ECMA
+         Script target version */
+      4 -    "lib": ["ES2022", "DOM", "ESNext.Temporal"], /* Include Temp
+        -oral type declarations used by Firebase */                      
+      4 +    "lib": ["ES2022", "DOM", "ESNext.Temporal"], /* Temporal typ
+        +e declarations (referenced by @types/node) */                   
+      5      "module": "ESNext",                        /* Specify module
+          code generation */
+      6      "moduleResolution": "Bundler",
+      7      "resolveJsonModule": true,                   /* Allow import
+         ing assets/data/*.json */
+     ...
+      11      "strict": true,                              /* Enable all 
+          strict type-checking options */
+      12      "esModuleInterop": true                      /* Emit additi
+          onal JavaScript to ease support for importing CommonJS modules 
+          */
+      13    },
+      14 -  "include": ["src"]                                           
+      14 +  "include": ["src", "server"]                                 
+      15  }
+  ⎿  Updated vite.config.ts (+7 -2)
+       1  import { defineConfig } from "vite";
+       2  
+       3  export default defineConfig({
+       4 -  // Relative asset paths, so the build works in a sub-folder  
+       5 -  // (GitHub Pages serves it at https://<user>.github.io/MazeGa
+         -me_ts/)                                                        
+       4    base: "/",
+       5 +  server: {                                                    
+       6 +    // In development the page comes from Vite (port 5173) and 
+         +the game server                                                
+       7 +    // (npm run dev:server) runs on port 3000; forward its WebS
+         +ocket there.                                                   
+       8 +    proxy: {                                                   
+       9 +      "/ws": { target: "ws://localhost:3000", ws: true },      
+      10 +    },                                                         
+      11 +  },                                                           
+      12  });
+
+● Bash(cd /h/Projects/MazeGame_ts; sed -i 's|verifyClient: ({ origin, req }) =>
+      isAllowedOrigin(origin, req.headers.host),|verifyClient: (info: { origin:
+      string; req:…)
+  ⎿  Updated server\index.ts (+1 -1)
+      156      server,
+      157      path: "/ws",
+      158      maxPayload: MAX_MESSAGE_BYTES,
+      159 -    verifyClient: ({ origin, req }) => isAllowedOrigin(origin,
+          - req.headers.host),                                           
+      159 +    verifyClient: (info: { origin: string; req: http.IncomingM
+          +essage }) => isAllowedOrigin(info.origin, info.req.headers.hos
+          +t),                                                           
+      160    });
+      161  
+      162    wss.on("connection", (socket) => {
+  ⎿  Updated tsconfig.json (+1 -1)
+      1  {
+      2    "compilerOptions": {
+      3      "target": "ES2022",                          /* Specify ECMA
+         Script target version */
+      4 -    "lib": ["ES2022", "DOM", "ESNext.Temporal"], /* Temporal typ
+        -e declarations (referenced by @types/node) */                   
+      4 +    "lib": ["ES2022", "DOM"], /* Temporal type declarations (ref
+        +erenced by @types/node) */                                      
+      5      "module": "ESNext",                        /* Specify module
+          code generation */
+      6      "moduleResolution": "Bundler",
+      7      "resolveJsonModule": true,                   /* Allow import
+         ing assets/data/*.json */
+
+● Bash(cd /h/Projects/MazeGame_ts; sed -i 's|"lib": \["ES2022", "DOM"\], /\*
+      Temporal type declarations (referenced by @types/node) \*/|"lib":
+      ["ES2022", "DOM"],|' tsc…)
+  ⎿  Updated tsconfig.json (+1 -1)
+      1  {
+      2    "compilerOptions": {
+      3      "target": "ES2022",                          /* Specify ECMA
+         Script target version */
+      4 -    "lib": ["ES2022", "DOM"], /* Temporal type declarations (ref
+        -erenced by @types/node) */                                      
+      4 +    "lib": ["ES2022", "DOM"],                                   
+      5      "module": "ESNext",                        /* Specify module
+          code generation */
+      6      "moduleResolution": "Bundler",
+      7      "resolveJsonModule": true,                   /* Allow import
+         ing assets/data/*.json */
+
+● Client builds (bundle dropped to 94 KB without Firebase). Now an end-to-end
+  test against the real server with two simulated clients.
+
+  Made 1 scratchpad edit +88, ran 1 shell command (ctrl+o to expand)
+
+● All 18 checks pass, including the turn check, the reconnect grace period, room
+  cleanup, and path traversal being blocked. Now the docs.
+
+  Read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+● Write(README.md)
+  ⎿  Added 47 lines, removed 62 lines
+      2  
+      3  A browser-based, turn-based multiplayer quiz game. Players take 
+         turns rolling a die and moving through a maze from the bottom-le
+         ft corner to the top-right one. Landing on a flag opens a timed 
+         multiple-choice question: a correct answer earns points and extr
+         a steps, a wrong one ends the turn.
+      4  
+      5 -It's written in TypeScript with no UI framework (plain DOM and `
+        -<canvas>`), built with Vite, and uses Firebase for the lobby, ga
+        -me rooms, player presence and the shared game state. The quiz qu
+        -estions are in Serbian (Cyrillic); the interface is available in
+        - English and Serbian.                                           
+      5 +It's a client–server application written in TypeScript. The brow
+        +ser client uses no UI framework (plain DOM and `<canvas>`) and i
+        +s built with Vite. A Node.js server keeps the lobby, game rooms 
+        +and shared game state in SQLite and talks to the browsers over W
+        +ebSockets. The quiz questions are in Serbian (Cyrillic); the int
+        +erface is available in English and Serbian.                     
+      6  
+      7  ## Features
+      8  
+     ...
+      14  - **Three visual themes** for the game screen (Garden Board, Ne
+          on Night, Candy Pop).
+      15  - **Sounds**, with groups that can be muted.
+      16  - **Two languages** (English, Serbian), switchable on every scr
+          een.
+      17 -- **Presence tracking:** players who close their tab are remove
+         -d from their room and game, and empty rooms are deleted.       
+      17 +- **Connection tracking:** players who close their tab or lose 
+         +their connection for more than 10 seconds are removed from thei
+         +r room and game, and empty rooms are deleted. A shorter drop re
+         +connects automatically.                                        
+      18  
+      19  ## Getting started
+      20  
+      21 -Requirements: [Node.js](https://nodejs.org/) 18 or newer.      
+      21 +Requirements: [Node.js](https://nodejs.org/) 20 or newer.      
+      22  
+      23  ```bash
+      24  npm install
+      25 -npm run dev                                                    
+      25 +npm run dev:server   # game server on http://localhost:3000 (te
+         +rminal 1)                                                      
+      26 +npm run dev          # Vite dev server with hot reload (termina
+         +l 2)                                                           
+      27  ```
+      28  
+      28 -Open the address Vite prints (usually http://localhost:5173). T
+         -o try multiplayer on one computer, open the game in two browser
+         - tabs and log in with a different name in each.                
+      29 +Open the address Vite prints (usually http://localhost:5173). V
+         +ite forwards the WebSocket (`/ws`) to the game server. To try m
+         +ultiplayer on one computer, open the game in two browser tabs a
+         +nd log in with a different name in each.                       
+      30  
+      31  The lobby also has two practice rooms, **Alpha Room** and **Bet
+          a Room**. Their players are fake and always ready, so you can s
+          tart a game from a single tab; you play the fake players' turns
+           yourself.
+      32  
+     ...
+       34  
+       35  | Command | What it does |
+       36  | --- | --- |
+       36 -| `npm run build` | Type-checks, then builds the site into `di
+          -st/` |                                                        
+       37 -| `npm run preview` | Serves the built `dist/` locally |      
+       37 +| `npm run build` | Type-checks the client and server, then bu
+          +ilds the client into `dist/` |                                
+       38 +| `npm start` | Runs the server in production mode: it serves 
+          +`dist/` and the WebSocket on one port |                       
+       39  | `npx tsc` | Type-check only |
+       40  
+       40 -## Deploying to GitHub Pages                                  
+       41 +## Running in production                                      
+       42  
+       42 -The browser can't run the TypeScript sources directly, so the 
+          -site has to be built first. The workflow in [`.github/workflow
+          -s/deploy.yml`](.github/workflows/deploy.yml) builds the game a
+          -nd publishes `dist/` on every push to `main`.                 
+       43 +```bash                                                       
+       44 +npm ci                                                        
+       45 +npm run build                                                 
+       46 +npm start                                                     
+       47 +```                                                           
+       48  
+       44 -One-time setup: in the repository's **Settings → Pages → Build
+          - and deployment**, set **Source** to **GitHub Actions**. After
+          - the next push (or a manual run from the **Actions** tab), the
+          - game is at `https://<user>.github.io/<repo>/`.               
+       49 +The server listens on `PORT` (default 3000) and serves the bui
+          +lt client from `dist/` plus the WebSocket at `/ws`, so the pag
+          +e and the server share one address. Put it behind a reverse pr
+          +oxy (nginx, Caddy) that terminates HTTPS and forwards WebSocke
+          +t upgrades; the client uses `wss://` automatically when the pa
+          +ge is on HTTPS.                                               
+       50  
+       46 -The build uses relative paths (`base: "./"` in [`vite.config.t
+          -s`](vite.config.ts)), so it works in any sub-folder.          
+       51 +It needs a host that runs a long-lived Node process with a wri
+          +table disk for the SQLite file, for example a VPS, Fly.io, Rai
+          +lway or Render with a persistent volume. Static hosts and serv
+          +erless platforms (GitHub Pages, Vercel, Netlify) can't run it.
+       52  
+       48 -## Firebase setup                                             
+       53 +Environment variables:                                        
+       54  
+       50 -The game uses two Firebase services:                          
+       55 +| Variable | Default | Meaning |                              
+       56 +| --- | --- | --- |                                           
+       57 +| `PORT` | `3000` | HTTP and WebSocket port |                 
+       58 +| `DB_FILE` | `data/mazegame.sqlite` | SQLite database file (t
+          +he folder is created if needed) |                             
+       59 +| `ALLOWED_ORIGINS` | *(none)* | Extra page origins allowed to
+          + open a WebSocket, comma separated. The server's own host and 
+          +`localhost` are always allowed. |                             
+       60  
+       52 -- **Cloud Firestore** for the game rooms and the running games
+       53 -- **Realtime Database** for tracking who is online            
+       61 +## How the server works                                       
+       62  
+       55 -The configuration in [`src/firebase_init.ts`](src/firebase_ini
+          -t.ts) points at the author's project. To run the game against 
+          -your own:                                                     
+       63 +- Each browser tab opens one WebSocket and logs in with a name
+          +. The server gives it a user id and a secret token. Every tab 
+          +is a separate player.                                         
+       64 +- The server is the only one that writes the data, and it chec
+          +ks every request: at most 6 players per room, one room per use
+          +r, a game can't be joined after it started, and only the playe
+          +r whose turn it is (or the first real player, who plays the fa
+          +ke players' turns and removes players who left) can save the g
+          +ame.                                                          
+       65 +- **Presence** is the connection itself. A closed tab closes i
+          +ts socket; a ping every 15 seconds catches connections that di
+          +ed without closing. The server then waits 10 seconds: if the t
+          +ab reconnects with its token in that time, it continues as the
+          + same player. Otherwise it's removed from its room.           
+       66 +- When the server restarts, all connections are gone, so it em
+          +pties all rooms and resets the practice rooms.                
+       67  
+       57 -1. Create a project in the [Firebase console](https://console.
+          -firebase.google.com/) and add a **Web app** to it.            
+       58 -2. Create a **Firestore database** and a **Realtime Database**
+          -.                                                             
+       59 -3. Copy the web app's config (Project settings → General → You
+          -r apps) into `firebaseConfig` in `src/firebase_init.ts`, inclu
+          -ding `databaseURL`.                                           
+       60 -4. Publish the security rules below.                          
+       68 +### Data layout (SQLite)                                      
+       69  
+       62 -**Firestore rules** (Firestore Database → Rules):             
+       70 +| Table | Contents |                                          
+       71 +| --- | --- |                                                 
+       72 +| `users` | Name, token, online/offline, current room |       
+       73 +| `rooms` | Room name, status (waiting/started), host, the id 
+          +of its game |                                                 
+       74 +| `room_players` | Who is in each room and whether they are re
+          +ady |                                                         
+       75 +| `games` | The running game: maze, player positions, steps, s
+          +cores, whose turn it is, the current question |               
+       76  
+       64 -```                                                           
+       65 -rules_version = '2';                                          
+       66 -service cloud.firestore {                                     
+       67 -  match /databases/{database}/documents {                     
+       68 -    match /gameRooms/{roomId}/{document=**} {                 
+       69 -      allow read, write: if true;                             
+       70 -    }                                                         
+       71 -  }                                                           
+       72 -}                                                             
+       73 -```                                                           
+       74 -                                                              
+       75 -**Realtime Database rules** (Realtime Database → Rules):      
+       76 -                                                              
+       77 -```json                                                       
+       78 -{                                                             
+       79 -  "rules": {                                                  
+       80 -    "status": {                                               
+       81 -      ".read": true,                                          
+       82 -      "$uid": { ".write": true }                              
+       83 -    }                                                         
+       84 -  }                                                           
+       85 -}                                                             
+       86 -```                                                           
+       87 -                                                              
+       88 -> [!WARNING]                                                  
+       89 -> These rules let anyone read and write the game data. They ar
+          -e meant for development only. The game has no sign-in yet; loc
+          -king the rules down needs Firebase Authentication (for example
+          -, Anonymous Auth) so the rules can check who is writing.      
+       90 -                                                              
+       91 -### Data layout                                               
+       92 -                                                              
+       93 -| Where | Path | Contents |                                   
+       94 -| --- | --- | --- |                                           
+       95 -| Realtime Database | `status/{userId}` | Name, online/offline
+          -, current room |                                              
+       96 -| Firestore | `gameRooms/{roomId}` | Room name, status (waitin
+          -g/started), players and whether they are ready |              
+       97 -| Firestore | `gameRooms/{roomId}/game/state` | The running ga
+          -me: maze, player positions, steps, scores, whose turn it is, t
+          -he current question |                                         
+       98 -                                                              
+       77  ## How to play
+       78  
+       79  1. Enter a name and go to the lobby.
+     ...
+       87  
+       88  ```
+       89  index.html              Page shell and fonts
+       90 +server/                                                       
+       91 +  index.ts              HTTP server (serves dist/), WebSockets
+          +, heartbeat, reconnects                                       
+       92 +  store.ts              Rooms, games and users: every rule is 
+          +checked here                                                  
+       93 +  db.ts                 SQLite (sqlite3 package) and the schem
+          +a                                                             
+       94  src/
+      113 -  index.ts              Router: login → lobby → room → game, a
+          -nd the Firebase wiring                                        
+       95 +  index.ts              Router: login → lobby → room → game   
+       96 +  connection.ts         The WebSocket to the server: requests,
+          + subscriptions, reconnecting                                  
+       97 +  protocol.ts           Message and data types shared by the c
+          +lient and server                                              
+       98 +  game_setup.ts         Builds a new game (maze, players); use
+          +d by the server                                               
+       99    login-screen.ts       Screens
+      100    lobby-screen.ts
+      101    game-room-screen.ts
+      102    game.ts               Game screen, turn logic and syncing wi
+           th the other players
+      118 -  presence.ts           Online/offline tracking (Realtime Data
+          -base)                                                         
+      119 -  rooms.ts              Rooms: create, join, leave, ready, sta
+          -rt, cleanup (Firestore)                                       
+      120 -  games.ts              The shared game document (Firestore)  
+      103 +  rooms.ts              Rooms: create, join, leave, ready     
+      104 +  games.ts              The shared game state                 
+      105    maze_generator.ts     Maze generation
+      106    render_maze.ts        Drawing the maze on the canvas
+      107    dice-pop-up.ts        3D dice
+     ...
+      139  
+      140  ## Current limitations
+      141  
+      158 -- There is no sign-in, and the Firebase rules above are open t
+          -o anyone.                                                     
+      142 +- There are no accounts: a name is enough to play, and it isn'
+          +t kept after the tab closes.                                  
+      143 +- The server checks who may save the game, but not the moves t
+          +hemselves (dice values, walls, answers), so a modified client 
+          +could cheat on its own turn.                                  
+      144  - The Alpha and Beta practice rooms are always present in the 
+           lobby.
+      160 -- If the player whose turn it is closes their tab, the turn pa
+          -sses to the next player only while at least one other player's
+          - game is open.                                                
+      145 +- If the player whose turn it is leaves, the turn passes to th
+          +e next player only while at least one other player's game is o
+          +pen.                                                          
+
+● Now CLAUDE.md.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Writing the CLAUDE.md edits through a Python script file (the inline heredoc
+  failed earlier).
+
+  Made 1 scratchpad edit +72 (ctrl+o to expand)
+● Bash(cd /h/Projects/MazeGame_ts; python
+      "C:/Users/Putic/AppData/Local/Temp/claude/h--Projects-MazeGame-ts/32ef54f1
+      -4edb-4968-9551-cd44665ed13a/scratchpad/edit_claude…)
+  ⎿  Updated CLAUDE.md (+15 -13)
+       4  
+       5  ## Project
+       6  
+       7 -Browser-based, turn-based multiplayer maze quiz game written in
+         - TypeScript with no UI framework (plain DOM + `<canvas>`). Play
+         -ers roll a die, move through a braided maze from the bottom-lef
+         -t start `(0, height-1)` to the top-right finish `(width-1, 0)`,
+         - and landing on a flag triggers a timed multiple-choice questio
+         -n. Question content (in `assets/data/*.json`) is Serbian Cyrill
+         -ic.                                                            
+       7 +Browser-based, turn-based multiplayer maze quiz game written in
+         + TypeScript: a client with no UI framework (plain DOM + `<canva
+         +s>`, built with Vite) and a Node.js server (`server/`, SQLite +
+         + WebSockets). Players roll a die, move through a braided maze f
+         +rom the bottom-left start `(0, height-1)` to the top-right fini
+         +sh `(width-1, 0)`, and landing on a flag triggers a timed multi
+         +ple-choice question. Question content (in `assets/data/*.json`)
+         + is Serbian Cyrillic.                                          
+       8  
+       9  ## Commands
+      10  
+      11 -- `npm run dev` — Vite dev server with HMR; `index.html` loads 
+         -`/src/index.ts` directly.                                      
+      12 -- `npm run build` — `tsc` (type-check only, `noEmit`) then `vit
+         -e build` → bundled output in `dist/` (`dist/index.html` + hashe
+         -d files in `dist/assets/`).                                    
+      13 -- `npm run preview` — serve the built `dist/` locally.         
+      11 +- `npm run dev:server` — game server (`tsx watch server/index.t
+         +s`) on port 3000. Run it next to `npm run dev`.                
+      12 +- `npm run dev` — Vite dev server with HMR; `index.html` loads 
+         +`/src/index.ts` directly. `vite.config.ts` proxies `/ws` to `ws
+         +://localhost:3000`.                                            
+      13 +- `npm run build` — `tsc` (type-checks `src/` and `server/`, `n
+         +oEmit`) then `vite build` → bundled client in `dist/` (`dist/in
+         +dex.html` + hashed files in `dist/assets/`).                   
+      14 +- `npm start` — production: `tsx server/index.ts` serves `dist/
+         +` and the WebSocket (`/ws`) on `PORT` (default 3000). Env: `DB_
+         +FILE` (default `data/mazegame.sqlite`, git-ignored), `ALLOWED_O
+         +RIGINS`. `tsx` is a runtime dependency because the server runs 
+         +from TypeScript.                                               
+      15  - `npx tsc` — type-check only.
+      15 -- Deploy: `.github/workflows/deploy.yml` builds and publishes `
+         -dist/` to GitHub Pages on every push to `main` (repo Settings →
+         - Pages → Source must be "GitHub Actions"). `vite.config.ts` set
+         -s `base: "./"` so the build works under `/<repo>/`; keep asset 
+         -references in `index.html` relative (e.g. `./favicon.ico`) so V
+         -ite bundles them. Serving the repo root directly can't work: `i
+         -ndex.html` loads `/src/index.ts`, which browsers can't run.    
+      16 -- `node server.js` — old minimal HTTP server on port 3000 that 
+         -returns `index.html` for every request; it doesn't serve JS or 
+         -other files, so use `npm run preview` instead.                 
+      16 +- Deploy: needs a host with a long-lived Node process and a wri
+         +table disk (not GitHub Pages / Vercel). `.github/workflows/depl
+         +oy.yml` (GitHub Pages, on push to `main`) is from the Firebase 
+         +version and would publish a client with no server. Keep asset r
+         +eferences in `index.html` relative (e.g. `./favicon.ico`) so Vi
+         +te bundles them. Serving the repo root directly can't work: `in
+         +dex.html` loads `/src/index.ts`, which browsers can't run.     
+      17  
+      18  There is no test runner or linter configured.
+      19  
+     ...
+      21  
+      22  ## Architecture
+      23  
+      24 -**Entry / router — `src/index.ts`.** Holds a small global `appS
+         -tate` and a chain of `navigateTo*` functions: Login → Lobby → G
+         -ame Room → Game Play. Each screen module exports a `render*Scre
+         -en(container, ...data, ...callbacks)` function that wipes `#app
+         --container` (including `removeAttribute("style")`, because the 
+         -screens share that element and a leftover `alignItems: center` 
+         -from the login would shift later screens) and builds its DOM, w
+         -ith inline styles (login) or an injected `<style>`. The lobby a
+         -nd game room share a centered card layout from `screen-styles.t
+         -s` (`sc-*` classes: page, card, blue header, body, buttons) and
+         - add their own `ls-*` / `rs-*` classes; the game screen uses `g
+         -s-*`; navigation happens through the callbacks. `renderLobbyScr
+         -een` returns a function that redraws only the room list. Each c
+         -ontroller stores its Firestore unsubscribe (or the game cleanup
+         -) in `stopCurrentScreen`, which the next `navigateTo*` calls fi
+         -rst.                                                           
+      24 +**Entry / router — `src/index.ts`.** Holds a small global `appS
+         +tate` and a chain of `navigateTo*` functions: Login → Lobby → G
+         +ame Room → Game Play. Each screen module exports a `render*Scre
+         +en(container, ...data, ...callbacks)` function that wipes `#app
+         +-container` (including `removeAttribute("style")`, because the 
+         +screens share that element and a leftover `alignItems: center` 
+         +from the login would shift later screens) and builds its DOM, w
+         +ith inline styles (login) or an injected `<style>`. The lobby a
+         +nd game room share a centered card layout from `screen-styles.t
+         +s` (`sc-*` classes: page, card, blue header, body, buttons) and
+         + add their own `ls-*` / `rs-*` classes; the game screen uses `g
+         +s-*`; navigation happens through the callbacks. `renderLobbyScr
+         +een` returns a function that redraws only the room list. Each c
+         +ontroller stores its server unsubscribe (or the game cleanup) i
+         +n `stopCurrentScreen`, which the next `navigateTo*` calls first
+         +.                                                              
+      25  
+      26  **Game state is a single mutable object** (`GameState` in `src/
+          GameState.ts`: `maze`, `players`, `width`, plus `phase` (roll /
+           move / question / finished), `rollCount`, `lastRoll`, `answerC
+          ount`, `lastAnswerCorrect`, `winnerId`). `navigateToGamePlay()`
+           builds it from the Firestore game doc, and `game.ts` mutates i
+          t. Exactly one player has `isCurrentTurn`; `steps` is the remai
+          ning moves for that turn.
+      27  
+     ...
+      32  4. Question outcome: correct → +2 score, +3 steps, turn continu
+          es; wrong/timeout → steps = 0, next player. This logic lives in
+          line in `game.ts`; `question_resolver.ts` is a duplicate, curre
+          ntly unused version of it.
+      33  5. `render_maze.ts` (`renderGame(ctx, maze, players, cellSize, 
+          board, time)`) draws the whole maze. `game.ts` calls it every f
+          rame from a `requestAnimationFrame` loop; `time` drives the twi
+          nkling crown (`crown21`/`crown22` alternate), the pulsing finis
+          h glow and the current player's bob. Flags use `assets/images/q
+          uestion_{typeId}.png` and players `player{spriteId}.png`, scale
+          d to fit the cell with their proportions kept. Until the images
+           load, colored squares and circles are drawn instead. The score
+          board and current-player box are re-rendered via `innerHTML` in
+           `updateUI()`.
+      34  
+      35 -**Multiplayer turns.** Only the client whose turn it is acts: i
+         -t gets input, the real dice and the question. A mock player's t
+         -urn is played by the first real player (`controllerOf`). Every 
+         -local change goes through `commit()` → `publish()`, which saves
+         - `syncedPart(gameState)`. `renderGamePlayScreen` returns `{ cle
+         -anup, applyRemote, removePlayers }`. `applyRemote` takes the sa
+         -ved state and replays what changed compared to the local state:
+         - the turn changing opens a dice pop-up, a position change plays
+         - a footstep, `rollCount`/`lastRoll` drive the spectator dice, `
+         -answerCount` shows the result pop-up, and `finished` shows the 
+         -victory pop-up. Our own saves come back identical, so nothing i
+         -s replayed, and snapshots with pending writes are skipped. `rem
+         -ovePlayers` is called by one client (the first real player stil
+         -l in the room) for players who left the room, and passes the tu
+         -rn on if it was theirs. Call `cleanup` when leaving the game sc
+         -reen.                                                          
+      35 +**Multiplayer turns.** Only the client whose turn it is acts: i
+         +t gets input, the real dice and the question. A mock player's t
+         +urn is played by the first real player (`controllerOf`). Every 
+         +local change goes through `commit()` → `publish()`, which saves
+         + `syncedPart(gameState)`. `renderGamePlayScreen` returns `{ cle
+         +anup, applyRemote, removePlayers }`. `applyRemote` takes the sa
+         +ved state and replays what changed compared to the local state:
+         + the turn changing opens a dice pop-up, a position change plays
+         + a footstep, `rollCount`/`lastRoll` drive the spectator dice, `
+         +answerCount` shows the result pop-up, and `finished` shows the 
+         +victory pop-up. The server doesn't send a save back to the clie
+         +nt that made it, and `index.ts` ignores game updates while its 
+         +own saves are in flight (`savesInFlight`); a save lost with the
+         + connection is sent again after the reconnect. `removePlayers` 
+         +is called by one client (the first real player still in the roo
+         +m) for players who left the room, and passes the turn on if it 
+         +was theirs. Call `cleanup` when leaving the game screen.       
+      36  
+      37  **Themes** — `themes.ts` defines three style sets for the game 
+          screen: `garden` (Garden Board, the default), `neon` (Neon Nigh
+          t) and `candy` (Candy Pop). Each has CSS scoped under `.theme-<
+          id>` plus a `board` color set used by the canvas renderer. `gam
+          e.ts` holds the layout CSS every theme shares (`.gs-*` classes,
+           desktop grid / stacked at <= 1024px) and puts `gs-root theme-<
+          id>` on the screen root. The color dots in the scoreboard heade
+          r switch the theme; the choice is saved in `localStorage` (`maz
+          egame.theme`). The fonts (Fredoka, Baloo 2, Lilita One) load fr
+          om Google Fonts in `index.html`. To add a theme, add an entry t
+          o `themes` and its name as `theme.<id>` in every language file.
+      38  
+     ...
+      48  
+      49  **Sounds** — `sounds.ts` preloads `assets/sound/*.wav`; `playSo
+          und(name)` plays a copy each time, so sounds can overlap. Playe
+          rs can mute groups of sounds from the "Mute:" row above the maz
+          e. The groups are listed in `muteGroups` (steps, dice, answers,
+           next player, wall; their names are `mute.<id>` in the language
+           files), and the choice is saved in `localStorage` (`mazegame.m
+          utedSounds`). A muted `playSound` still returns an (unplayed) e
+          lement. `winning` is not in any group, so it always plays. Trig
+          gers: roll (while the die tumbles in `dice-pop-up.ts`; faded ou
+          t with `fadeOutSound` when it settles), footstep (valid move), 
+          damageTaken (move blocked by a wall or the edge while the playe
+          r has steps), collect / wrongAnswer (question result, including
+           timeout), winning (inside the victory pop-up), changePlayer (i
+          n `game.ts`'s `handleTurnAdvance`, which waits `TURN_CHANGE_DEL
+          AY_MS` before the next player's dice).
+     … 16 more lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bash(cd /h/Projects/MazeGame_ts; sed -i 's/builds it from the Firestore game
+      doc/builds it from the game the server sends/' CLAUDE.md; sed -i 's|// The
+      screen redraw…)
+  ⎿  Updated CLAUDE.md (+1 -1)
+      23  
+      24  **Entry / router — `src/index.ts`.** Holds a small global `appS
+          tate` and a chain of `navigateTo*` functions: Login → Lobby → G
+          ame Room → Game Play. Each screen module exports a `render*Scre
+          en(container, ...data, ...callbacks)` function that wipes `#app
+          -container` (including `removeAttribute("style")`, because the 
+          screens share that element and a leftover `alignItems: center` 
+          from the login would shift later screens) and builds its DOM, w
+          ith inline styles (login) or an injected `<style>`. The lobby a
+          nd game room share a centered card layout from `screen-styles.t
+          s` (`sc-*` classes: page, card, blue header, body, buttons) and
+           add their own `ls-*` / `rs-*` classes; the game screen uses `g
+          s-*`; navigation happens through the callbacks. `renderLobbyScr
+          een` returns a function that redraws only the room list. Each c
+          ontroller stores its server unsubscribe (or the game cleanup) i
+          n `stopCurrentScreen`, which the next `navigateTo*` calls first
+          .
+      25  
+      26 -**Game state is a single mutable object** (`GameState` in `src/
+         -GameState.ts`: `maze`, `players`, `width`, plus `phase` (roll /
+         - move / question / finished), `rollCount`, `lastRoll`, `answerC
+         -ount`, `lastAnswerCorrect`, `winnerId`). `navigateToGamePlay()`
+         - builds it from the Firestore game doc, and `game.ts` mutates i
+         -t. Exactly one player has `isCurrentTurn`; `steps` is the remai
+         -ning moves for that turn.                                      
+      26 +**Game state is a single mutable object** (`GameState` in `src/
+         +GameState.ts`: `maze`, `players`, `width`, plus `phase` (roll /
+         + move / question / finished), `rollCount`, `lastRoll`, `answerC
+         +ount`, `lastAnswerCorrect`, `winnerId`). `navigateToGamePlay()`
+         + builds it from the game the server sends, and `game.ts` mutate
+         +s it. Exactly one player has `isCurrentTurn`; `steps` is the re
+         +maining moves for that turn.                                   
+      27  
+      28  **Game loop — `src/game.ts` (`renderGamePlayScreen`)** wires ev
+          erything together:
+      29  1. `dice-pop-up.ts` (`showDiceRollPopup`) shows a 3D physics di
+          e (`DiceScene` class, math in `dice_math.ts`, ported from `play
+          ful_dice_roller (3).html`). The player clicks it or presses Spa
+          ce. The rolled value becomes `currentPlayer.steps` (1–6). Other
+           clients see `showSpectatorDicePopup`, which can't be clicked: 
+          it tumbles when the roll starts (`rollCount` +1) and, once sett
+          led, fades to the real `lastRoll` face.
+  ⎿  Updated src\game-room-screen.ts (+1 -1)
+      193      const toggleBtn = document.createElement("button");
+      194      toggleBtn.className = me.status === "ready" ? "sc-btn oran
+           ge" : "sc-btn green";
+      195      toggleBtn.innerText = t(me.status === "ready" ? "room.setW
+           aiting" : "room.setReady");
+      196 -    // The screen redraws with the new status once Firestore h
+          -as the change                                                 
+      196 +    // The screen redraws with the new status once the server 
+          +sends the room                                                
+      197      toggleBtn.onclick = () => onToggleStatus(me.status === "re
+           ady" ? "waiting" : "ready");
+      198      actions.appendChild(toggleBtn);
+      199    }
+  ⎿  Updated src\login-screen.ts (+1 -1)
+      83    const submitName = () => {
+      84      const name = nameInput.value.trim();
+      85      if (name) {
+      86 -      // Trigger the callback to save to Firestore and transiti
+         -on the view                                                    
+      86 +      // Trigger the callback to log in on the server and trans
+         +ition the view                                                 
+      87        onLogin(name); 
+      88      } else {
+      89        // Basic validation feedback
+
+● Quick check that the Vite dev proxy reaches the server:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The proxy works. I ran a broad taskkill on node.exe there to clean up leftover
+  test servers, which was careless. Checking what's still running:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The taskkill matched nothing, and every node process still running is one of
+  my test servers. I'll stop just those by PID:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● I created the on_node.js branch and replaced Firebase with a Node.js server
+  that keeps its data in SQLite (the sqlite3 package) and talks to the browsers
+  over WebSockets (the ws package). Nothing is committed yet.
+
+  The app compiles and builds, and an 18-check test script against the real
+  server passed; it logged in two clients, created and joined rooms, started a
+  game, saved turns and simulated disconnects. I haven't played it through in a
+  real browser yet. I only checked that the dev setup forwards the WebSocket to
+  the server.
+
+  How to run it
+  - Development: npm run dev:server in one terminal and npm run dev in another.
+    Vite passes /ws through to the server on port 3000.
+  - Production: npm run build, then npm start. The server delivers the built
+    game from dist/ and the WebSocket on one port. Settings are environment
+    variables: PORT, DB_FILE (default data/mazegame.sqlite, which is
+    git-ignored) and ALLOWED_ORIGINS.
+
+  What changed
+  - New server in server/:
+    - index.ts (server/index.ts) handles file serving and the WebSocket
+      connections, and runs requests one at a time.
+    - store.ts (server/store.ts) holds the room and game rules.
+    - db.ts (server/db.ts) has the database tables: users, rooms, room_players,
+      games.
+  - Connection monitoring replaces the Realtime Database:
+    - The WebSocket connection itself shows who is online.
+    - The server pings each connection every 15 seconds and closes dead ones.
+    - A dropped player has 10 seconds to reconnect as the same player, using a
+      secret token. After that they're removed from their room.
+    - src/connection.ts reconnects automatically. If the server no longer knows
+      the player, the page shows a message and reloads.
+  - The server now enforces the rules that the Firebase version left to each
+    browser:
+    - at most 6 players per room, and one room per player;
+    - no joining a game that has started;
+    - the server starts the game itself when everyone is ready;
+    - only the player whose turn it is can save the game. The exception is the
+      first real player, who plays the fake players' turns and removes players
+      who left.
+    - a save can't add new players, and its data is checked before it's stored.
+  - Client: rooms.ts (src/rooms.ts) and games.ts (src/games.ts) now send their
+    requests to the server. The message types shared by both sides are in
+    protocol.ts (src/protocol.ts), and building a new game moved to
+    game_setup.ts (src/game_setup.ts).
+    - Removed: firebase_init.ts, presence.ts, the old server.js and the firebase
+      package.
+    - Added a connection.lost message in both language files.
+    - The game bundle dropped from the Firebase size to 94 KB.
+  - Docs: README and CLAUDE.md are updated.
+
+  What you should know
+  - Hosting: this can't run on Vercel or GitHub Pages. It needs a host that
+    keeps a Node process running and has a disk for the SQLite file, such as a
+    VPS, Fly.io, Railway or Render with a volume.
+    - .github/workflows/deploy.yml still publishes to GitHub Pages on every push
+      to main. If you merge this branch, it would publish a game with no server
+      behind it.
+  - Restarts: restarting the server empties all rooms, because every connection
+    is gone at that point.
+  - Cheating: the server doesn't check the moves themselves (dice values, walls,
+    answers). A modified browser could still cheat on its own turn.
+  - npm audit: it reports issues in Vite 5 and its esbuild. They affect only the
+    development server; fixing them means upgrading Vite to a new major
+    version.
+
+  Do you want me to commit this, and replace the GitHub Pages workflow with a
+  deployment for a Node host?

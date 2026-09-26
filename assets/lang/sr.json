@@ -36,6 +36,7 @@
     "room.error.notFound": "Ова соба више не постоји.",
     "room.error.started": "Ова игра је већ почела.",
     "room.error.full": "Ова соба је пуна.",
+    "connection.lost": "Веза са сервером је прекинута. Страница ће се поново учитати.",
 
     "game.mute": "Без звука:",
     "game.scoreboard": "Резултати",

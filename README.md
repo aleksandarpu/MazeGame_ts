@@ -2,7 +2,7 @@
 
 A browser-based, turn-based multiplayer quiz game. Players take turns rolling a die and moving through a maze from the bottom-left corner to the top-right one. Landing on a flag opens a timed multiple-choice question: a correct answer earns points and extra steps, a wrong one ends the turn.
 
-It's written in TypeScript with no UI framework (plain DOM and `<canvas>`), built with Vite, and uses Firebase for the lobby, game rooms, player presence and the shared game state. The quiz questions are in Serbian (Cyrillic); the interface is available in English and Serbian.
+It's a client–server application written in TypeScript. The browser client uses no UI framework (plain DOM and `<canvas>`) and is built with Vite. A Node.js server keeps the lobby, game rooms and shared game state in SQLite and talks to the browsers over WebSockets. The quiz questions are in Serbian (Cyrillic); the interface is available in English and Serbian.
 
 ## Features
 
@@ -14,18 +14,19 @@ It's written in TypeScript with no UI framework (plain DOM and `<canvas>`), buil
 - **Three visual themes** for the game screen (Garden Board, Neon Night, Candy Pop).
 - **Sounds**, with groups that can be muted.
 - **Two languages** (English, Serbian), switchable on every screen.
-- **Presence tracking:** players who close their tab are removed from their room and game, and empty rooms are deleted.
+- **Connection tracking:** players who close their tab or lose their connection for more than 10 seconds are removed from their room and game, and empty rooms are deleted. A shorter drop reconnects automatically.
 
 ## Getting started
 
-Requirements: [Node.js](https://nodejs.org/) 18 or newer.
+Requirements: [Node.js](https://nodejs.org/) 20 or newer.
 
 ```bash
 npm install
-npm run dev
+npm run dev:server   # game server on http://localhost:3000 (terminal 1)
+npm run dev          # Vite dev server with hot reload (terminal 2)
 ```
 
-Open the address Vite prints (usually http://localhost:5173). To try multiplayer on one computer, open the game in two browser tabs and log in with a different name in each.
+Open the address Vite prints (usually http://localhost:5173). Vite forwards the WebSocket (`/ws`) to the game server. To try multiplayer on one computer, open the game in two browser tabs and log in with a different name in each.
 
 The lobby also has two practice rooms, **Alpha Room** and **Beta Room**. Their players are fake and always ready, so you can start a game from a single tab; you play the fake players' turns yourself.
 
@@ -33,68 +34,45 @@ The lobby also has two practice rooms, **Alpha Room** and **Beta Room**. Their p
 
 | Command | What it does |
 | --- | --- |
-| `npm run build` | Type-checks, then builds the site into `dist/` |
-| `npm run preview` | Serves the built `dist/` locally |
+| `npm run build` | Type-checks the client and server, then builds the client into `dist/` |
+| `npm start` | Runs the server in production mode: it serves `dist/` and the WebSocket on one port |
 | `npx tsc` | Type-check only |
 
-## Deploying to GitHub Pages
+## Running in production
 
-The browser can't run the TypeScript sources directly, so the site has to be built first. The workflow in [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) builds the game and publishes `dist/` on every push to `main`.
-
-One-time setup: in the repository's **Settings → Pages → Build and deployment**, set **Source** to **GitHub Actions**. After the next push (or a manual run from the **Actions** tab), the game is at `https://<user>.github.io/<repo>/`.
-
-The build uses relative paths (`base: "./"` in [`vite.config.ts`](vite.config.ts)), so it works in any sub-folder.
-
-## Firebase setup
-
-The game uses two Firebase services:
-
-- **Cloud Firestore** for the game rooms and the running games
-- **Realtime Database** for tracking who is online
-
-The configuration in [`src/firebase_init.ts`](src/firebase_init.ts) points at the author's project. To run the game against your own:
-
-1. Create a project in the [Firebase console](https://console.firebase.google.com/) and add a **Web app** to it.
-2. Create a **Firestore database** and a **Realtime Database**.
-3. Copy the web app's config (Project settings → General → Your apps) into `firebaseConfig` in `src/firebase_init.ts`, including `databaseURL`.
-4. Publish the security rules below.
-
-**Firestore rules** (Firestore Database → Rules):
-
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /gameRooms/{roomId}/{document=**} {
-      allow read, write: if true;
-    }
-  }
-}
+```bash
+npm ci
+npm run build
+npm start
 ```
 
-**Realtime Database rules** (Realtime Database → Rules):
+The server listens on `PORT` (default 3000) and serves the built client from `dist/` plus the WebSocket at `/ws`, so the page and the server share one address. Put it behind a reverse proxy (nginx, Caddy) that terminates HTTPS and forwards WebSocket upgrades; the client uses `wss://` automatically when the page is on HTTPS.
 
-```json
-{
-  "rules": {
-    "status": {
-      ".read": true,
-      "$uid": { ".write": true }
-    }
-  }
-}
-```
+It needs a host that runs a long-lived Node process with a writable disk for the SQLite file, for example a VPS, Fly.io, Railway or Render with a persistent volume. Static hosts and serverless platforms (GitHub Pages, Vercel, Netlify) can't run it.
 
-> [!WARNING]
-> These rules let anyone read and write the game data. They are meant for development only. The game has no sign-in yet; locking the rules down needs Firebase Authentication (for example, Anonymous Auth) so the rules can check who is writing.
+Environment variables:
 
-### Data layout
-
-| Where | Path | Contents |
+| Variable | Default | Meaning |
 | --- | --- | --- |
-| Realtime Database | `status/{userId}` | Name, online/offline, current room |
-| Firestore | `gameRooms/{roomId}` | Room name, status (waiting/started), players and whether they are ready |
-| Firestore | `gameRooms/{roomId}/game/state` | The running game: maze, player positions, steps, scores, whose turn it is, the current question |
+| `PORT` | `3000` | HTTP and WebSocket port |
+| `DB_FILE` | `data/mazegame.sqlite` | SQLite database file (the folder is created if needed) |
+| `ALLOWED_ORIGINS` | *(none)* | Extra page origins allowed to open a WebSocket, comma separated. The server's own host and `localhost` are always allowed. |
+
+## How the server works
+
+- Each browser tab opens one WebSocket and logs in with a name. The server gives it a user id and a secret token. Every tab is a separate player.
+- The server is the only one that writes the data, and it checks every request: at most 6 players per room, one room per user, a game can't be joined after it started, and only the player whose turn it is (or the first real player, who plays the fake players' turns and removes players who left) can save the game.
+- **Presence** is the connection itself. A closed tab closes its socket; a ping every 15 seconds catches connections that died without closing. The server then waits 10 seconds: if the tab reconnects with its token in that time, it continues as the same player. Otherwise it's removed from its room.
+- When the server restarts, all connections are gone, so it empties all rooms and resets the practice rooms.
+
+### Data layout (SQLite)
+
+| Table | Contents |
+| --- | --- |
+| `users` | Name, token, online/offline, current room |
+| `rooms` | Room name, status (waiting/started), host, the id of its game |
+| `room_players` | Who is in each room and whether they are ready |
+| `games` | The running game: maze, player positions, steps, scores, whose turn it is, the current question |
 
 ## How to play
 
@@ -109,15 +87,21 @@ service cloud.firestore {
 
 ```
 index.html              Page shell and fonts
+server/
+  index.ts              HTTP server (serves dist/), WebSockets, heartbeat, reconnects
+  store.ts              Rooms, games and users: every rule is checked here
+  db.ts                 SQLite (sqlite3 package) and the schema
 src/
-  index.ts              Router: login → lobby → room → game, and the Firebase wiring
+  index.ts              Router: login → lobby → room → game
+  connection.ts         The WebSocket to the server: requests, subscriptions, reconnecting
+  protocol.ts           Message and data types shared by the client and server
+  game_setup.ts         Builds a new game (maze, players); used by the server
   login-screen.ts       Screens
   lobby-screen.ts
   game-room-screen.ts
   game.ts               Game screen, turn logic and syncing with the other players
-  presence.ts           Online/offline tracking (Realtime Database)
-  rooms.ts              Rooms: create, join, leave, ready, start, cleanup (Firestore)
-  games.ts              The shared game document (Firestore)
+  rooms.ts              Rooms: create, join, leave, ready
+  games.ts              The shared game state
   maze_generator.ts     Maze generation
   render_maze.ts        Drawing the maze on the canvas
   dice-pop-up.ts        3D dice
@@ -155,6 +139,7 @@ Texts that include a number have one entry per plural form (`.one`, `.few`, `.ot
 
 ## Current limitations
 
-- There is no sign-in, and the Firebase rules above are open to anyone.
+- There are no accounts: a name is enough to play, and it isn't kept after the tab closes.
+- The server checks who may save the game, but not the moves themselves (dice values, walls, answers), so a modified client could cheat on its own turn.
 - The Alpha and Beta practice rooms are always present in the lobby.
-- If the player whose turn it is closes their tab, the turn passes to the next player only while at least one other player's game is open.
+- If the player whose turn it is leaves, the turn passes to the next player only while at least one other player's game is open.

@@ -7,15 +7,10 @@ import { gameStateFromDoc, saveGame, syncedFromDoc, watchGame } from "./games";
 import { showResultPopup } from "./answer-pop-up";
 import { showVictoryPopup as renderVictoryPopup } from "./victory-pop-up";
 import { t } from "./i18n";
-import { getClientUserId, startPresence, setPresenceRoom } from "./presence";
+import { login, ServerError } from "./connection";
 import {
-  Room, RoomMember, sortedMembers, seedMockRooms, watchRooms, watchRoom, newRoomId, createRoom,
-  joinRoom, leaveRoom, setMemberStatus, startRoomIfAllReady, startRoomCleanup,
+  Room, RoomMember, sortedMembers, watchRooms, watchRoom, createRoom, joinRoom, leaveRoom, setMemberStatus,
 } from "./rooms";
-
-//const path = require('path');
-// Inside your server code, pointing to root index.html from dist/
-//res.sendFile(path.join(__dirname, '../index.html'));
 
 // Main Application Container
 const appContainer = document.getElementById("app-container") as HTMLElement;
@@ -24,10 +19,10 @@ const appContainer = document.getElementById("app-container") as HTMLElement;
 const appState = {
   currentUserId: "",
   currentUserName: "",
-  currentRoomId: "", // Firestore gameRooms id the user is in, "" in the lobby
+  currentRoomId: "", // Id of the room the user is in, "" in the lobby
 };
 
-// Stops the current screen's Firestore listeners / game loop before the next screen
+// Stops the current screen's server subscriptions / game loop before the next screen
 let stopCurrentScreen: (() => void) | null = null;
 function leaveCurrentScreen() {
   stopCurrentScreen?.();
@@ -42,31 +37,36 @@ function leaveCurrentScreen() {
  * 1. Login Controller
  */
 function navigateToLogin() {
-  renderLoginScreen(appContainer, (playerName: string) => {
-    appState.currentUserId = getClientUserId();
-    appState.currentUserName = playerName;
-    // Track the connection in the Realtime Database (status/{userId})
-    startPresence(appState.currentUserId, playerName);
-    // Remove disconnected players from rooms, delete rooms left empty
-    startRoomCleanup();
-    seedMockRooms().catch((error) => console.error("Rooms: could not create the mock rooms", error));
-
-    // After successful login go to lobby screen[cite: 1]
-    navigateToLobby();
+  let busy = false;
+  renderLoginScreen(appContainer, async (playerName: string) => {
+    if (busy) return;
+    busy = true;
+    try {
+      // Connects to the server, which tracks this tab's connection from now on.
+      // If it drops for longer than the server waits, the page reloads to the login.
+      appState.currentUserId = await login(playerName, () => {
+        alert(t("connection.lost"));
+        location.reload();
+      });
+      appState.currentUserName = playerName;
+      navigateToLobby();
+    } catch (error) {
+      console.error("Could not log in", error);
+      busy = false;
+    }
   });
 }
 
-/** Leaves the current room in Firestore first, then clears the room from presence. */
+/** Leaves the current room on the server. */
 async function leaveCurrentRoom() {
   const roomId = appState.currentRoomId;
   if (!roomId) return;
   appState.currentRoomId = "";
   try {
-    await leaveRoom(roomId, appState.currentUserId);
+    await leaveRoom(roomId);
   } catch (error) {
     console.error("Rooms: could not leave the room", error);
   }
-  setPresenceRoom(null).catch((error) => console.error("Presence: could not clear the room", error));
 }
 
 /**
@@ -76,35 +76,29 @@ function navigateToLobby() {
   leaveCurrentScreen();
   leaveCurrentRoom();
 
-  const userId = appState.currentUserId;
   const userName = appState.currentUserName;
   let busy = false; // A create / join is in progress
 
-  // Presence points at the room before the room lists the player, so the
-  // cleanup never sees a room player whose presence says "in the lobby".
-  const enterRoom = async (roomId: string, writeRoom: () => Promise<void>, failMessage: string) => {
+  const enterRoom = async (writeRoom: () => Promise<string>, failMessage: string) => {
     if (busy) return;
     busy = true;
     try {
-      await setPresenceRoom(roomId);
-      await writeRoom();
-      appState.currentRoomId = roomId;
+      appState.currentRoomId = await writeRoom();
       navigateToGameRoom();
     } catch (error) {
       console.error(failMessage, error);
-      alert(error instanceof Error && !(error as any).code ? error.message : failMessage);
-      setPresenceRoom(null).catch(() => {});
+      const code = error instanceof ServerError ? error.code : "";
+      alert(code === "notFound" || code === "started" || code === "full" ? t(`room.error.${code}`) : failMessage);
       busy = false;
     }
   };
 
   const handleCreateRoom = (roomName: string) => {
-    const roomId = newRoomId();
-    enterRoom(roomId, () => createRoom(roomId, roomName, userId, userName), t("lobby.createFailed"));
+    enterRoom(() => createRoom(roomName), t("lobby.createFailed"));
   };
 
   const handleJoinRoom = (roomId: string) => {
-    enterRoom(roomId, () => joinRoom(roomId, userId, userName), t("lobby.joinFailed"));
+    enterRoom(() => joinRoom(roomId).then(() => roomId), t("lobby.joinFailed"));
   };
 
   const updateRooms = renderLobbyScreen(appContainer, userName, handleCreateRoom, handleJoinRoom);
@@ -129,19 +123,17 @@ function navigateToGameRoom() {
   let started = false;
 
   const handleToggleStatus = (newStatus: "waiting" | "ready") => {
-    // The screen redraws from the room snapshot once Firestore has the change
-    setMemberStatus(roomId, userId, newStatus).catch((error) => console.error("Rooms: could not change status", error));
+    // The screen redraws from the room update the server sends; once everyone
+    // is ready the server starts the game and the room turns "started"
+    setMemberStatus(roomId, newStatus).catch((error) => console.error("Rooms: could not change status", error));
   };
 
-  stopCurrentScreen = watchRoom(roomId, (room, fromCache) => {
+  stopCurrentScreen = watchRoom(roomId, (room) => {
     if (started) return;
 
-    // Room deleted, or we were removed from it (e.g. by the cleanup after a disconnect).
-    // Only trust the server here: right after joining, the cached room may not list us yet.
+    // Room deleted, or we were removed from it (e.g. after a long disconnect)
     if (!room || !room.players[userId]) {
-      if (fromCache) return;
       appState.currentRoomId = "";
-      setPresenceRoom(null).catch(() => {});
       navigateToLobby();
       return;
     }
@@ -163,18 +155,14 @@ function navigateToGameRoom() {
       handleToggleStatus,
       navigateToLobby
     );
-
-    if (members.every((member) => member.status === "ready")) {
-      startRoomIfAllReady(roomId).catch((error) => console.error("Rooms: could not start the game", error));
-    }
   });
 }
 
 /**
  * 4. Game Play Controller
  *
- * The game lives in Firestore (gameRooms/{roomId}/game/state, created when the room started).
- * The client whose turn it is saves every change; all clients follow the snapshots.
+ * The server keeps the game (created when the room started). The client whose turn
+ * it is saves every change; the server sends it to the other clients.
  */
 function navigateToGamePlay(roomId: string, gameId: string) {
   leaveCurrentScreen();
@@ -184,9 +172,17 @@ function navigateToGamePlay(roomId: string, gameId: string) {
   let screen: GameScreen | null = null;
   let roomMembers: Record<string, RoomMember> | null = null;
 
+  let savesInFlight = 0;
   const publish = () => {
     if (!gameState) return;
-    saveGame(roomId, syncedPart(gameState)).catch((error) => console.error("Game: could not save", error));
+    savesInFlight++;
+    saveGame(roomId, gameId, syncedPart(gameState))
+      .catch((error) => {
+        // Lost with the connection: save the latest state again once reconnected
+        if (!(error instanceof ServerError)) publish();
+        else console.error("Game: could not save", error);
+      })
+      .finally(() => savesInFlight--);
   };
 
   const showVictoryPopup = () => {
@@ -206,9 +202,11 @@ function navigateToGamePlay(roomId: string, gameId: string) {
     if (keeper?.id === userId) screen.removePlayers(gone);
   };
 
-  const stopGame = watchGame(roomId, (game, ownPending) => {
-    if (!game || game.gameId !== gameId) return; // Not created yet, or a previous game of this room
-    if (ownPending && gameState) return; // Echo of our own saves; gameState is already ahead of it
+  const stopGame = watchGame(roomId, (game) => {
+    if (!game || game.gameId !== gameId) return; // Deleted, or a later game of this room
+    // While our saves are on the way, the server's copy is behind ours
+    // (e.g. the current value it sends again after a reconnect)
+    if (savesInFlight > 0 && gameState) return;
     if (!gameState) {
       gameState = gameStateFromDoc(game);
       screen = renderGamePlayScreen(appContainer, gameState, {
@@ -223,8 +221,8 @@ function navigateToGamePlay(roomId: string, gameId: string) {
     }
   });
 
-  const stopRoom = watchRoom(roomId, (room, fromCache) => {
-    if (!room || fromCache) return;
+  const stopRoom = watchRoom(roomId, (room) => {
+    if (!room) return;
     roomMembers = room.players;
     dropPlayersWhoLeft();
   });
