@@ -13,7 +13,8 @@ import { Player } from "./player";
 
 export const MAZE_SIZE = 15;
 const playerColors = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c"];
-
+const FLAG_TYPE_COUNT = 4 
+const FLAGS_PER_TYPE = 8
 export type GameDoc = SyncedGameState & {
   gameId: string; // Same id as the room's gameId, so a stale cached game from before is ignored
   width: number;
@@ -27,7 +28,7 @@ export function gameRef(roomId: string) {
 /** A new game for the room's players (in join order; the first one starts). */
 export function buildNewGame(gameId: string, members: { id: string; name: string; isMock?: boolean }[]): GameDoc {
   const maze = generateBraidedMaze(MAZE_SIZE, MAZE_SIZE);
-  placeFlagsInMaze(maze, 4, 8);
+  placeFlagsInMaze(maze, FLAG_TYPE_COUNT, FLAGS_PER_TYPE);
   const players: Player[] = members.map((member, index) => ({
     id: member.id,
     name: member.name,
