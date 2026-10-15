@@ -1,0 +1,54 @@
+{
+    // Terminal > Run Task. "dev" starts the hot-reloading client and the watching
+    // game server together (open http://localhost:5173). "build" is the same
+    // step the launch configuration runs before starting the server.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "npm",
+            "script": "build",
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": "$tsc",
+            "presentation": { "reveal": "silent", "panel": "shared" }
+        },
+        {
+            "label": "dev client (Vite)",
+            "type": "npm",
+            "script": "dev",
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "vite",
+                "pattern": { "regexp": "^$" },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "VITE v",
+                    "endsPattern": "ready in"
+                }
+            },
+            "presentation": { "reveal": "always", "panel": "dedicated", "group": "dev" }
+        },
+        {
+            "label": "dev server (watch)",
+            "type": "npm",
+            "script": "dev:server",
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "server",
+                "pattern": { "regexp": "^$" },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "Maze game server",
+                    "endsPattern": "Maze game server"
+                }
+            },
+            "presentation": { "reveal": "always", "panel": "dedicated", "group": "dev" }
+        },
+        {
+            "label": "dev",
+            "dependsOn": ["dev server (watch)", "dev client (Vite)"],
+            "dependsOrder": "parallel",
+            "problemMatcher": []
+        }
+    ]
+}

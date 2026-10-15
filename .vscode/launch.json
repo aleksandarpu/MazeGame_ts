@@ -1,0 +1,19 @@
+{
+    // F5 / the green Start button in VS Code or Visual Studio (folder view).
+    // Builds the client into dist/ (type-checks first), then starts the game
+    // server, which serves dist/ and the WebSocket on http://localhost:3000.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run game (build + server)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/server/index.ts",
+            "cwd": "${workspaceFolder}",
+            "runtimeArgs": ["--import", "tsx"],
+            "preLaunchTask": "build",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        }
+    ]
+}

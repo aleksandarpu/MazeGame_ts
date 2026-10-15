@@ -1,7 +1,19 @@
 {
   "name": "mazegame_ts",
   "version": "1.0.0",
-  "description": "",
+  "description": "A browser-based, turn-based multiplayer quiz game. Players take turns rolling a die and moving through a maze from the bottom-left corner to the top-right one. Landing on a flag opens a timed multiple-choice question: a correct answer earns points and extra steps, a wrong one ends the turn.",
+  "keywords": [],
+  "homepage": "https://github.com/aleksandarpu/MazeGame_ts#readme",
+  "bugs": {
+    "url": "https://github.com/aleksandarpu/MazeGame_ts/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aleksandarpu/MazeGame_ts.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
   "main": "server/index.ts",
   "scripts": {
     "dev": "vite",
@@ -10,20 +22,16 @@
     "start": "tsx server/index.ts",
     "preview": "vite preview"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "dependencies": {
+    "sqlite3": "^6.0.1",
+    "tsx": "^4.23.15",
+    "ws": "^8.21.3"
+  },
   "devDependencies": {
     "@types/node": "^26.6.2",
     "@types/ws": "^8.18.1",
     "typescript": "^7.0.2",
     "vite": "^5.4.21"
-  },
-  "dependencies": {
-    "sqlite3": "^6.0.1",
-    "tsx": "^4.23.15",
-    "ws": "^8.21.3"
   },
   "engines": {
     "node": ">=20"
