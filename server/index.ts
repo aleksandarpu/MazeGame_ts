@@ -43,6 +43,8 @@ const PING_MS = 5000; // Every connection is pinged this often; one that misses 
 const RECONNECT_GRACE_MS = 10000; // A dropped player has this long to come back before leaving the room
 const PRESENCE_EVERY_PINGS = 3; // Every 3 pings (15 s): refresh this server's users' presence, then sweep
 const PRESENCE_LEASE_MS = 45000; // A room player nobody has refreshed for this long has left
+const PRUNE_EVERY_MS = 60 * 60 * 1000; // How often the users nobody needs any more are deleted
+const USER_IDLE_MS = 7 * 24 * 60 * 60 * 1000; // Offline, in no room, and idle this long: the user is deleted
 const MAX_MESSAGE_BYTES = 64 * 1024;
 
 type Session = {
@@ -251,6 +253,7 @@ async function main() {
 
   // Connections that stopped answering pings are closed (then handled like a closed tab)
   let pings = 0;
+  let lastPrune = 0;
   const heartbeat = setInterval(() => {
     for (const [socket, session] of sessions) {
       if (!session.alive) {
@@ -265,6 +268,12 @@ async function main() {
         console.error("Could not refresh presence", error)
       );
       sweep();
+      if (Date.now() - lastPrune >= PRUNE_EVERY_MS) {
+        lastPrune = Date.now();
+        serialize(() => store.pruneUsers(USER_IDLE_MS, PRESENCE_LEASE_MS)).catch((error) =>
+          console.error("Could not delete idle users", error)
+        );
+      }
     }
   }, PING_MS);
 

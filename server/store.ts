@@ -148,6 +148,23 @@ export class Store {
     return !!row && typeof token === "string" && row.token === token;
   }
 
+  /**
+   * Deletes the users who are offline, in no room, and haven't been connected to any server for
+   * `idleMs`. A user who dropped recently keeps their row, so they can still resume.
+   */
+  async pruneUsers(idleMs: number, leaseMs: number): Promise<void> {
+    const now = Date.now();
+    const idle = `SELECT u.id FROM users u
+        WHERE u.state = 'offline' AND u.last_changed < ?
+          AND u.id NOT IN (SELECT user_id FROM room_players)
+          AND u.id NOT IN (SELECT user_id FROM presence WHERE seen_at >= ?)`;
+    const params = [now - idleMs, now - leaseMs];
+    await this.db.transaction(async () => {
+      await this.db.run(`DELETE FROM presence WHERE user_id IN (${idle})`, params);
+      await this.db.run(`DELETE FROM users WHERE id IN (${idle})`, params);
+    });
+  }
+
   async setUserState(userId: string, state: "online" | "offline"): Promise<void> {
     await this.db.run("UPDATE users SET state = ?, last_changed = ? WHERE id = ?", [state, Date.now(), userId]);
   }
