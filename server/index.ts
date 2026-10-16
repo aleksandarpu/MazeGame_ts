@@ -115,6 +115,9 @@ async function main() {
     // This connection logs in as someone else: the user it was for leaves, as if it had closed
     const before = session.userId;
     if (before && before !== userId && socketOfUser.get(before) === socket) userLeft(before);
+    // The topics were subscribed as the previous user: the new user subscribes again (the client does
+    // this after a resume), so a game they are not in can't keep sending updates to this socket
+    if (before !== userId) session.topics.clear();
     session.userId = userId;
     const previous = socketOfUser.get(userId);
     socketOfUser.set(userId, socket);

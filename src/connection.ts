@@ -21,12 +21,13 @@ type Pending = {
 type Handler = (message: ServerMessage) => void;
 
 const RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000];
-// Room actions that do nothing when repeated (joining a room you are in, leaving one you left,
-// setting the same status again, creating with the same request id), so they can be sent again
-// when their reply was lost
-const REPEATABLE = new Set<ClientRequest["type"]>(["createRoom", "joinRoom", "leaveRoom", "setStatus"]);
+// Requests that do nothing when repeated (joining a room you are in, leaving one you left,
+// setting the same status again, creating with the same request id, removing players who are
+// already out), so they can be sent again when their reply was lost
+const REPEATABLE = new Set<ClientRequest["type"]>(["createRoom", "joinRoom", "leaveRoom", "setStatus", "removePlayers"]);
 
 let socket: WebSocket | null = null;
+let reconnectTimer: number | undefined; // The next connection attempt, while we wait to make it
 let ready = false; // Connected and logged in (or not logged in yet at all)
 let nextId = 1;
 let reconnectAttempt = 0;
@@ -53,7 +54,10 @@ function transmit(id: number, request: ClientRequest) {
   socket!.send(JSON.stringify({ ...request, id }));
 }
 
+// The only place a socket is made. One at a time: while a socket exists or a reconnect is scheduled,
+// this does nothing, so requests made meanwhile wait in the outbox for the connection that comes back.
 function connect() {
+  if (socket || reconnectTimer !== undefined) return;
   const ws = new WebSocket(serverUrl());
   socket = ws;
   ready = false;
@@ -112,7 +116,10 @@ function connect() {
     }
     if (event.code === 4000) return; // Replaced by a newer connection of the same user
     const delay = RECONNECT_DELAYS_MS[Math.min(reconnectAttempt++, RECONNECT_DELAYS_MS.length - 1)];
-    window.setTimeout(connect, delay);
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = undefined;
+      connect();
+    }, delay);
   };
 }
 

@@ -387,8 +387,17 @@ export class Store {
       if (!game.players.every((stored) => state.players.some((p) => p.id === stored.id))) {
         throw new RequestError("badRequest");
       }
-      // Each stored player, with the controller's version of it
-      const players = game.players.map((stored) => state.players.find((p) => p.id === stored.id) ?? stored);
+      // Each stored player keeps its identity (name, color, sprite, mock flag). The controller may only
+      // change the position, score, steps and turn of a player.
+      const players = game.players.map((stored) => {
+        const sent = state.players.find((p) => p.id === stored.id);
+        return sent ? { ...stored, ...pickChangingFields(sent) } : stored;
+      });
+      // Every position must be on the maze (maze[y][x])
+      const rows = JSON.parse(game.maze) as unknown[][];
+      if (!players.every((p) => p.x >= 0 && p.x < game.width && p.y >= 0 && p.y < rows.length)) {
+        throw new RequestError("badRequest");
+      }
       // The controller's copy can be older than a removal made meanwhile. If its turn now points
       // at a player who is gone (or at nobody), refuse it: the controller reloads the game.
       const holders = players.filter((p) => p.isCurrentTurn);
@@ -486,7 +495,13 @@ function withoutPlayers(game: GameDoc, gone: Set<string>): SyncedGameState {
   return { ...state, players };
 }
 
+/** The fields of a player that a save may change; the rest (name, color, sprite, mock flag) is fixed. */
+function pickChangingFields(p: SyncedGameState["players"][number]) {
+  return { x: p.x, y: p.y, score: p.score, steps: p.steps, isCurrentTurn: p.isCurrentTurn };
+}
+
 const phases = new Set(["roll", "move", "question", "finished"]);
+const FLAG_TYPES = 4; // Flag types 1 to 4 (one question file each, questions.ts)
 
 /** Shape check of a saved game state (the client is not trusted). */
 const syncedKeys = new Set(["players", "phase", "rollCount", "lastRoll", "answerCount", "lastAnswerCorrect", "lastAnswerText", "question", "winnerId"]);
@@ -511,7 +526,13 @@ function isSyncedState(value: any): value is SyncedGameState {
     typeof value.rollCount === "number" && typeof value.lastRoll === "number" &&
     typeof value.answerCount === "number" && typeof value.lastAnswerCorrect === "boolean" &&
     (value.lastAnswerText === null || typeof value.lastAnswerText === "string") &&
-    (value.question === null || (typeof value.question === "object" && onlyKeys(value.question, questionKeys))) &&
+    (value.question === null || (
+      typeof value.question === "object" && onlyKeys(value.question, questionKeys) &&
+      Number.isInteger(value.question.flagTypeId) && value.question.flagTypeId >= 1 && value.question.flagTypeId <= FLAG_TYPES &&
+      Number.isInteger(value.question.ordNum) && value.question.ordNum >= 0 &&
+      Array.isArray(value.question.answerOrder) && value.question.answerOrder.every((i: unknown) => Number.isInteger(i)) &&
+      typeof value.question.timeLimit === "number"
+    )) &&
     (value.winnerId === null || typeof value.winnerId === "string")
   );
 }
