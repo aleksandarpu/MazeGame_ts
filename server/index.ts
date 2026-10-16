@@ -10,10 +10,12 @@ import type { ClientMessage, ServerMessage, Topic } from "../src/protocol";
 // at /ws. Presence is the WebSocket itself: a closed tab closes its socket, and a
 // heartbeat (ping / pong) catches connections that die silently. A user who drops
 // out gets RECONNECT_GRACE_MS to come back (connection.ts resumes with its token)
-// before they are removed from their room.
+// before they are removed from their room. Presence is also kept in the database
+// (a lease, see sweep), so the old and the new server can overlap during a redeploy.
 // It also serves the built client from dist/ if there is one (local testing; in
 // production the client is on Vercel), and GET /health for Railway's health check.
-// Run a single instance: the operation queue and the connections live in memory.
+// The operation queue and the connections live in memory, so one instance serves the
+// players at a time; a second one may start during a redeploy (see PRESENCE_LEASE_MS).
 
 // In production (NODE_ENV=production, or Railway's own variable) the server refuses to start
 // without its database and its origins. A missing Turso URL would quietly use a local file that
@@ -37,9 +39,10 @@ const DIST_DIR = path.resolve(__dirname, "../dist");
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean)
   .map((pattern) => new RegExp("^" + pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[a-z0-9-]*") + "$", "i"));
 
-const HEARTBEAT_MS = 15000;
-const RECONNECT_GRACE_MS = 10000;
-const STARTUP_GRACE_MS = 30000; // After a (re)start, time for players to resume before the sweep removes them
+const PING_MS = 5000; // Every connection is pinged this often; one that misses two pings is closed
+const RECONNECT_GRACE_MS = 10000; // A dropped player has this long to come back before leaving the room
+const PRESENCE_EVERY_PINGS = 3; // Every 3 pings (15 s): refresh this server's users' presence, then sweep
+const PRESENCE_LEASE_MS = 45000; // A room player nobody has refreshed for this long has left
 const MAX_MESSAGE_BYTES = 64 * 1024;
 
 type Session = {
@@ -112,6 +115,7 @@ async function main() {
     if (msg.type === "hello") {
       const user = await store.createUser(cleanName(msg.name));
       bindUser(socket, session, user.userId);
+      await store.touchPresence([user.userId]);
       return user;
     }
     if (msg.type === "resume") {
@@ -120,6 +124,7 @@ async function main() {
       }
       bindUser(socket, session, msg.userId);
       await store.setUserState(msg.userId, "online");
+      await store.touchPresence([msg.userId]);
       return { userId: msg.userId, token: msg.token };
     }
     if (msg.type === "subscribe" || msg.type === "unsubscribe") {
@@ -234,19 +239,18 @@ async function main() {
     });
   });
 
-  // Room players with no connection and no reconnect timer: players who didn't come back
-  // after a restart, or who were added by the old instance during a redeploy. Checked only
-  // after STARTUP_GRACE_MS, so players have time to resume after this server started.
-  const startedAt = Date.now();
+  // Room players that nobody is connected to: no connection and no reconnect timer here, and no
+  // server has refreshed their presence within the lease. A server still running (e.g. the old one
+  // during a redeploy) keeps refreshing its players, so they stay where they are.
   const sweep = () =>
     serialize(async () => {
-      if (Date.now() - startedAt < STARTUP_GRACE_MS) return;
-      for (const userId of await store.playersInRooms()) {
+      for (const userId of await store.staleRoomPlayers(PRESENCE_LEASE_MS)) {
         if (!socketOfUser.has(userId) && !leaveTimers.has(userId)) await broadcast(await store.disconnect(userId));
       }
     }).catch((error) => console.error("Sweep failed", error));
 
   // Connections that stopped answering pings are closed (then handled like a closed tab)
+  let pings = 0;
   const heartbeat = setInterval(() => {
     for (const [socket, session] of sessions) {
       if (!session.alive) {
@@ -256,8 +260,13 @@ async function main() {
       session.alive = false;
       socket.ping();
     }
-    sweep();
-  }, HEARTBEAT_MS);
+    if (++pings % PRESENCE_EVERY_PINGS === 0) {
+      serialize(() => store.touchPresence([...socketOfUser.keys()])).catch((error) =>
+        console.error("Could not refresh presence", error)
+      );
+      sweep();
+    }
+  }, PING_MS);
 
   server.listen(PORT, () => console.log(`Maze game server on http://localhost:${PORT} (database ${DATABASE_URL.startsWith("file:") ? DATABASE_URL : "Turso"})`));
 

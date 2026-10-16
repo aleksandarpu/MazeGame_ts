@@ -14,7 +14,7 @@ It's a client–server application written in TypeScript. The browser client use
 - **Three visual themes** for the game screen (Garden Board, Neon Night, Candy Pop).
 - **Sounds**, with groups that can be muted.
 - **Two languages** (English, Serbian), switchable on every screen.
-- **Connection tracking:** players who close their tab or lose their connection for more than 10 seconds are removed from their room and game, and empty rooms are deleted. A shorter drop reconnects automatically.
+- **Connection tracking:** players who close their tab or lose their connection have 10 seconds to come back; after that they are removed from their room and game, and empty rooms are deleted. A connection that goes silent without closing is noticed within 10 seconds, so its removal comes within about 20 seconds. A shorter drop reconnects automatically.
 
 ## Getting started
 
@@ -85,7 +85,7 @@ Set them up in this order, because each step needs an address from the one befor
 
 ### Restarts and redeploys
 
-The rooms and games are in Turso, so they survive a server restart. After a restart, the browsers reconnect by themselves and continue as the same players. Players who don't reconnect within 30 seconds are removed from their rooms.
+The rooms and games are in Turso, so they survive a server restart. After a restart, the browsers reconnect by themselves and continue as the same players. Players who don't reconnect within about 45 seconds are removed from their rooms.
 
 ### Running the production setup locally
 
@@ -108,8 +108,8 @@ Without `TURSO_DATABASE_URL` the server uses a local file, `data/mazegame.sqlite
 
 - Each browser tab opens one WebSocket and logs in with a name. The server gives it a user id and a secret token. Every tab is a separate player.
 - The server is the only one that writes the data, and it checks every request: at most 6 players per room, one room per user, a game can't be joined after it started, and only the player whose turn it is (or the first real player, who plays the fake players' turns and removes players who left) can save the game.
-- **Presence** is the connection itself. A closed tab closes its socket; a ping every 15 seconds catches connections that died without closing. The server then waits 10 seconds: if the tab reconnects with its token in that time, it continues as the same player. Otherwise it's removed from its room.
-- When the server restarts, the rooms and games stay in the database. Players have 30 seconds to reconnect; after that, a sweep every 15 seconds removes room players who have no connection.
+- **Presence** is the connection itself. A closed tab closes its socket; a ping every 5 seconds catches connections that died without closing (after two missed pings). The server then waits 10 seconds: if the tab reconnects with its token in that time, it continues as the same player. Otherwise it's removed from its room.
+- When the server restarts, the rooms and games stay in the database. Each running server refreshes the presence of its connected players every 15 seconds (kept in the database). After about 45 seconds without a refresh, a sweep removes room players who have no connection, so a second server started during a redeploy doesn't remove players who are still connected to the first one.
 
 ### Data layout (SQLite / Turso)
 

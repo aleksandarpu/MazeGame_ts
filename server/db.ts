@@ -59,7 +59,15 @@ const schema = `
     room_id      TEXT,
     last_changed INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS presence (
+    user_id TEXT PRIMARY KEY,
+    seen_at INTEGER NOT NULL
+  );
 `;
+
+// Two servers can share a local file during a redeploy: wait for the other one's lock instead of failing
+const BUSY_TIMEOUT_MS = 5000;
 
 // A database call that doesn't answer in time has failed. Without a limit, one stuck call would
 // hold up every request behind it, since the server runs them one at a time (serialize in index.ts).
@@ -84,7 +92,7 @@ function withDeadline<T>(promise: Promise<T>, onTimeout: () => void): Promise<T>
 }
 
 export async function openDb(url: string, authToken?: string): Promise<Db> {
-  let client: Client = createClient({ url, authToken });
+  let client: Client = createClient({ url, authToken, timeout: BUSY_TIMEOUT_MS });
   // A connection that stopped answering is dropped (its waiting calls fail) and replaced.
   // Only the first report for a connection counts: later ones are about the old connection.
   const replace = (broken: Client) => () => {
@@ -92,7 +100,7 @@ export async function openDb(url: string, authToken?: string): Promise<Db> {
     try {
       broken.close();
     } catch {}
-    client = createClient({ url, authToken });
+    client = createClient({ url, authToken, timeout: BUSY_TIMEOUT_MS });
   };
   await withDeadline(client.executeMultiple(schema), replace(client));
 

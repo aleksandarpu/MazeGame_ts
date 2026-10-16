@@ -79,9 +79,31 @@ export class Store {
     });
   }
 
-  /** Ids of all real players in rooms. */
-  async playersInRooms(): Promise<string[]> {
-    const rows = await this.db.all<{ user_id: string }>("SELECT DISTINCT user_id FROM room_players WHERE is_mock = 0");
+  /**
+   * Records that these users are connected to a server now. Every server refreshes the users
+   * connected to it, so a player stays present while any server still has their connection.
+   */
+  async touchPresence(userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return;
+    await this.db.transaction(async () => {
+      const now = Date.now();
+      for (const userId of userIds) {
+        await this.db.run(
+          "INSERT INTO presence (user_id, seen_at) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET seen_at = excluded.seen_at",
+          [userId, now]
+        );
+      }
+    });
+  }
+
+  /** Real players in rooms whose presence hasn't been refreshed (by any server) for `leaseMs`. */
+  async staleRoomPlayers(leaseMs: number): Promise<string[]> {
+    const rows = await this.db.all<{ user_id: string }>(
+      `SELECT DISTINCT rp.user_id FROM room_players rp
+         LEFT JOIN presence p ON p.user_id = rp.user_id
+        WHERE rp.is_mock = 0 AND (p.seen_at IS NULL OR p.seen_at < ?)`,
+      [Date.now() - leaseMs]
+    );
     return rows.map((row) => row.user_id);
   }
 
@@ -256,7 +278,11 @@ export class Store {
 
   /** leaveAllRooms in its own transaction (a closed connection). */
   async disconnect(userId: string): Promise<Changes> {
-    return this.db.transaction(() => this.leaveAllRooms(userId));
+    return this.db.transaction(async () => {
+      const changes = await this.leaveAllRooms(userId);
+      await this.db.run("DELETE FROM presence WHERE user_id = ?", [userId]);
+      return changes;
+    });
   }
 
   /**
