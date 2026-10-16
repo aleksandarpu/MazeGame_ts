@@ -87,6 +87,8 @@ function connect() {
     if (socket !== ws) return;
     socket = null;
     ready = false;
+    // Queued requests were never sent: drop them, so they can't run after the reconnect
+    outbox.length = 0;
     // Requests that were sent may or may not have been applied; let the callers know
     for (const [id, request] of pending) {
       request.reject(new Error("Connection lost"));
