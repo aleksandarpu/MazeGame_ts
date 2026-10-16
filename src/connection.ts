@@ -65,7 +65,10 @@ function connect() {
         for (const topic of listeners.keys()) transmit(nextId++, { type: "subscribe", topic });
         flush();
       },
-      reject: () => onSessionLost(),
+      // Only the server refusing the session ends it. A dropped connection just reconnects (onclose)
+      reject: (error) => {
+        if (error instanceof ServerError) onSessionLost();
+      },
     });
     transmit(id, { type: "resume", userId: session.userId, token: session.token });
   };
