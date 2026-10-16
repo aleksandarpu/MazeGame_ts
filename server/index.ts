@@ -15,6 +15,16 @@ import type { ClientMessage, ServerMessage, Topic } from "../src/protocol";
 // production the client is on Vercel), and GET /health for Railway's health check.
 // Run a single instance: the operation queue and the connections live in memory.
 
+// In production (NODE_ENV=production, or Railway's own variable) the server refuses to start
+// without its database and its origins. A missing Turso URL would quietly use a local file that
+// is lost on the next redeploy; a missing origin list would lock out the Vercel client.
+const IN_PRODUCTION = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT_NAME;
+const missingConfig = IN_PRODUCTION ? ["TURSO_DATABASE_URL", "ALLOWED_ORIGINS"].filter((name) => !process.env[name]) : [];
+if (missingConfig.length > 0) {
+  console.error(`Refusing to start in production without: ${missingConfig.join(", ")}`);
+  process.exit(1);
+}
+
 const PORT = Number(process.env.PORT ?? 3000);
 // Turso in production; a local SQLite file otherwise
 const DATABASE_URL = process.env.TURSO_DATABASE_URL ||
@@ -209,7 +219,8 @@ async function main() {
         .then((data) => send(socket, { type: "reply", id: msg.id, ok: true, data }))
         .catch((error) => {
           if (!(error instanceof RequestError)) console.error(`Request ${msg.type} failed`, error);
-          send(socket, { type: "reply", id: msg.id, ok: false, error: error instanceof RequestError ? error.code : "badRequest" });
+          // Anything else is a server problem (e.g. the database), not bad input: the details are in the log
+          send(socket, { type: "reply", id: msg.id, ok: false, error: error instanceof RequestError ? error.code : "internal" });
         });
     });
 

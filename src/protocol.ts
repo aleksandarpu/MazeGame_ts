@@ -34,7 +34,9 @@ export type GameDoc = SyncedGameState & {
 };
 
 /** Error codes a request can fail with; the client shows t(`room.error.<code>`) for the room ones. */
-export type ErrorCode = "notFound" | "started" | "full" | "badRequest" | "notAllowed" | "notLoggedIn" | "conflict";
+export type ErrorCode =
+  | "notFound" | "started" | "full" | "badRequest" | "notAllowed" | "notLoggedIn" | "conflict"
+  | "internal"; // The server failed (details in its log); the request may be retried
 
 // Client -> server. Every request carries an `id`; the server answers with a `reply` with the same id.
 export type ClientRequest =
