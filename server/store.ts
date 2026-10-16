@@ -169,7 +169,8 @@ export class Store {
   async getGame(roomId: string): Promise<GameDoc | null> {
     const row = await this.db.get<GameRow>("SELECT * FROM games WHERE room_id = ?", [roomId]);
     if (!row) return null;
-    return { gameId: row.game_id, width: row.width, maze: row.maze, ...(JSON.parse(row.state) as SyncedGameState) };
+    // The columns are the game's details; they come last so nothing in the state can replace them
+    return { ...(JSON.parse(row.state) as SyncedGameState), gameId: row.game_id, width: row.width, maze: row.maze };
   }
 
   // ==========================================
@@ -404,12 +405,21 @@ function withoutPlayers(game: GameDoc, gone: Set<string>): SyncedGameState {
 const phases = new Set(["roll", "move", "question", "finished"]);
 
 /** Shape check of a saved game state (the client is not trusted). */
+const syncedKeys = new Set(["players", "phase", "rollCount", "lastRoll", "answerCount", "lastAnswerCorrect", "lastAnswerText", "question", "winnerId"]);
+const playerKeys = new Set(["id", "name", "x", "y", "color", "spriteId", "isCurrentTurn", "steps", "score", "isMock"]);
+const questionKeys = new Set(["flagTypeId", "ordNum", "answerOrder", "timeLimit"]);
+
+/** True if every key of the object is one of `allowed` (unknown fields are refused, not stored). */
+const onlyKeys = (value: object, allowed: Set<string>) => Object.keys(value).every((key) => allowed.has(key));
+
+/** Shape check of a saved game state (the client is not trusted). Only the changing fields are accepted. */
 function isSyncedState(value: any): value is SyncedGameState {
   return (
-    !!value && typeof value === "object" &&
+    !!value && typeof value === "object" && onlyKeys(value, syncedKeys) &&
     Array.isArray(value.players) && value.players.length <= MAX_PLAYERS_PER_ROOM &&
     value.players.every((p: any) =>
-      p && typeof p.id === "string" && typeof p.name === "string" &&
+      p && typeof p === "object" && onlyKeys(p, playerKeys) &&
+      typeof p.id === "string" && typeof p.name === "string" &&
       Number.isInteger(p.x) && Number.isInteger(p.y) &&
       typeof p.score === "number" && typeof p.steps === "number" && typeof p.isCurrentTurn === "boolean" &&
       PLAYER_COLORS.includes(p.color) && Number.isInteger(p.spriteId) && p.spriteId >= 1 && p.spriteId <= SPRITE_COUNT) &&
@@ -417,7 +427,7 @@ function isSyncedState(value: any): value is SyncedGameState {
     typeof value.rollCount === "number" && typeof value.lastRoll === "number" &&
     typeof value.answerCount === "number" && typeof value.lastAnswerCorrect === "boolean" &&
     (value.lastAnswerText === null || typeof value.lastAnswerText === "string") &&
-    (value.question === null || typeof value.question === "object") &&
+    (value.question === null || (typeof value.question === "object" && onlyKeys(value.question, questionKeys))) &&
     (value.winnerId === null || typeof value.winnerId === "string")
   );
 }
