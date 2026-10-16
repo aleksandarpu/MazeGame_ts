@@ -104,7 +104,17 @@ async function main() {
   const notify = (changes: Changes) =>
     broadcast(changes).catch((error) => console.error("Could not notify subscribers", error));
 
+  /** The user's connection here is gone: they are offline, and leave their room unless they resume in time. */
+  const userLeft = (userId: string) => {
+    socketOfUser.delete(userId);
+    serialize(() => store.setUserState(userId, "offline")).catch(() => {});
+    leaveTimers.set(userId, setTimeout(() => dropUser(userId), RECONNECT_GRACE_MS));
+  };
+
   const bindUser = (socket: WebSocket, session: Session, userId: string) => {
+    // This connection logs in as someone else: the user it was for leaves, as if it had closed
+    const before = session.userId;
+    if (before && before !== userId && socketOfUser.get(before) === socket) userLeft(before);
     session.userId = userId;
     const previous = socketOfUser.get(userId);
     socketOfUser.set(userId, socket);
@@ -235,9 +245,7 @@ async function main() {
       sessions.delete(socket);
       const userId = session.userId;
       if (!userId || socketOfUser.get(userId) !== socket) return; // Not logged in, or replaced by a newer connection
-      socketOfUser.delete(userId);
-      serialize(() => store.setUserState(userId, "offline")).catch(() => {});
-      leaveTimers.set(userId, setTimeout(() => dropUser(userId), RECONNECT_GRACE_MS));
+      userLeft(userId);
     });
   });
 
