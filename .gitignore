@@ -1,3 +1,7 @@
 node_modules
 dist/
 __pycache__/
+.env.local
+# Chat logs and review notes: they can contain secrets, keep them out of the repo
+2026-*.txt
+vercel_review.txt

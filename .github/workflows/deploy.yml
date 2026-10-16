@@ -1,5 +1,6 @@
 # Builds the game with Vite and publishes dist/ to GitHub Pages on every push to main.
 # One-time setup: repo Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# Also needed: the repository secret VITE_FIREBASE_API_KEY (Settings -> Secrets and variables -> Actions).
 name: Deploy to GitHub Pages
 
 on:
@@ -28,6 +29,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

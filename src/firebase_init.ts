@@ -5,9 +5,14 @@ import { getDatabase } from "firebase/database";
 // Firestore holds lobby / game room / game data; the Realtime Database is used
 // only for presence, because it has .info/connected and onDisconnect() (see presence.ts).
 
+// The API key is not kept in the source: it comes from VITE_FIREBASE_API_KEY at build time
+// (.env.local for development, a repository secret for the GitHub Pages build; see .env.example).
+const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+if (!apiKey) throw new Error("VITE_FIREBASE_API_KEY is not set: see .env.example");
+
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyD4D_8Vyvk8VqFclkvKzj71WJyOFQrO-iY",               // Retrieve this from your Firebase Console Project Settings
+  apiKey,                                                          // Retrieve this from your Firebase Console Project Settings
   authDomain: "mayegama-ts.firebaseapp.com",
   projectId: "mayegama-ts",
   storageBucket: "mayegama-ts.firebasestorage.app",
