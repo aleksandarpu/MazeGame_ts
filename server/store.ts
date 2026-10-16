@@ -294,9 +294,10 @@ export class Store {
   // ==========================================
 
   /**
-   * Saves the changing part of the game. Allowed for the player who controls the current
-   * turn (a mock player's turn is played by the first real player), and for the first real
-   * player still in the room, who removes players who left.
+   * Saves the changing part of the game (positions, scores, turn, phase). Only the player who
+   * controls the current turn may save (a mock player's turn is played by the first real player).
+   * The player list is not changed here: the server keeps its own, so a save made from an
+   * older copy can't bring back a removed player (removeGamePlayers does the removals).
    */
   async saveGame(userId: string, roomId: string, gameId: string, state: SyncedGameState): Promise<void> {
     if (!isSyncedState(state)) throw new RequestError("badRequest");
@@ -309,15 +310,40 @@ export class Store {
       const current = game.players.find((p) => p.isCurrentTurn);
       const firstReal = game.players.find((p) => !p.isMock)?.id;
       const controller = current?.isMock ? firstReal : current?.id;
-      const keeper = game.players.find((p) => !p.isMock && room.players[p.id])?.id;
-      if (userId !== controller && userId !== keeper) throw new RequestError("notAllowed");
+      if (userId !== controller) throw new RequestError("notAllowed");
 
-      // Players can be removed from the game, never added
-      const known = new Set(game.players.map((p) => p.id));
-      if (!state.players.every((p) => known.has(p.id))) throw new RequestError("badRequest");
-
-      await this.db.run("UPDATE games SET state = ? WHERE room_id = ?", [JSON.stringify(state), roomId]);
+      // Each stored player, with the controller's version of it
+      const players = game.players.map((stored) => state.players.find((p) => p.id === stored.id) ?? stored);
+      await this.db.run("UPDATE games SET state = ? WHERE room_id = ?", [JSON.stringify({ ...state, players }), roomId]);
     });
+  }
+
+  /**
+   * Drops players who left the room from the game, and passes the turn on if it was theirs.
+   * Only the first real player still in the room may ask, and only for players who are gone.
+   * Ids already out of the game are skipped, so a repeated request changes nothing.
+   */
+  async removeGamePlayers(userId: string, roomId: string, gameId: string, playerIds: string[]): Promise<Changes> {
+    if (!Array.isArray(playerIds) || !playerIds.every((id) => typeof id === "string")) {
+      throw new RequestError("badRequest");
+    }
+    const changes = noChanges();
+    await this.db.transaction(async () => {
+      const room = await this.getRoom(roomId);
+      const game = await this.getGame(roomId);
+      if (!room || !game || room.gameId !== gameId || game.gameId !== gameId) throw new RequestError("notFound");
+      if (!room.players[userId] || game.phase === "finished") throw new RequestError("notAllowed");
+      const keeper = game.players.find((p) => !p.isMock && room.players[p.id])?.id;
+      if (userId !== keeper) throw new RequestError("notAllowed");
+
+      const gone = new Set(
+        game.players.filter((p) => !p.isMock && !room.players[p.id] && playerIds.includes(p.id)).map((p) => p.id)
+      );
+      if (gone.size === 0) return;
+      await this.db.run("UPDATE games SET state = ? WHERE room_id = ?", [JSON.stringify(withoutPlayers(game, gone)), roomId]);
+      changes.games.add(roomId);
+    });
+    return changes;
   }
 }
 
@@ -355,6 +381,24 @@ function sortMembers(room: Room): (RoomMember & { id: string })[] {
 function merge(into: Changes, from: Changes) {
   from.rooms.forEach((id) => into.rooms.add(id));
   from.games.forEach((id) => into.games.add(id));
+}
+
+/**
+ * The game's changing state without the players in `gone`. If one of them had the turn, it
+ * passes to the player who came after them (the same rule the game screen used).
+ */
+function withoutPlayers(game: GameDoc, gone: Set<string>): SyncedGameState {
+  const { gameId: _, width, maze, ...state } = game;
+  const currentIndex = state.players.findIndex((p) => p.isCurrentTurn);
+  const current = state.players[currentIndex];
+  const players = state.players.filter((p) => !gone.has(p.id));
+  if (current && gone.has(current.id)) {
+    const next = players[currentIndex % players.length];
+    players.forEach((p) => (p.isCurrentTurn = p === next));
+    next.steps = 0;
+    return { ...state, players, phase: "roll", lastRoll: 0, question: null };
+  }
+  return { ...state, players };
 }
 
 const phases = new Set(["roll", "move", "question", "finished"]);

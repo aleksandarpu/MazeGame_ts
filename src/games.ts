@@ -42,3 +42,8 @@ export function watchGame(roomId: string, onChange: (game: GameDoc | null) => vo
 export async function saveGame(roomId: string, gameId: string, state: SyncedGameState): Promise<void> {
   await request({ type: "saveGame", roomId, gameId, state });
 }
+
+/** Asks the server to drop players who left the room from the game (the server decides the rest). */
+export async function removeGamePlayers(roomId: string, gameId: string, playerIds: string[]): Promise<void> {
+  await request({ type: "removePlayers", roomId, gameId, playerIds });
+}

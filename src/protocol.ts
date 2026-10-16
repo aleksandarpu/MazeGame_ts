@@ -44,6 +44,7 @@ export type ClientRequest =
   | { type: "leaveRoom"; roomId: string }
   | { type: "setStatus"; roomId: string; status: MemberStatus }
   | { type: "saveGame"; roomId: string; gameId: string; state: SyncedGameState }
+  | { type: "removePlayers"; roomId: string; gameId: string; playerIds: string[] } // Players who left the room
   | { type: "subscribe"; topic: Topic }
   | { type: "unsubscribe"; topic: Topic };
 

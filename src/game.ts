@@ -158,8 +158,6 @@ export type GameScreen = {
   cleanup: () => void;
   /** Take over the state another player saved, and play what happened (roll, move, answer, turn change) */
   applyRemote: (next: SyncedGameState) => void;
-  /** Drop players who left the room; passes the turn on if it was theirs */
-  removePlayers: (playerIds: string[]) => void;
 };
 
 const phaseTextKey: Record<GamePhase, TextKey> = {
@@ -591,29 +589,6 @@ export function renderGamePlayScreen(
     }
   };
 
-  const removePlayers = (playerIds: string[]) => {
-    const current = getCurrentPlayer();
-    const currentIndex = current ? gameState.players.indexOf(current) : -1;
-    gameState.players = gameState.players.filter((p) => !playerIds.includes(p.id));
-    if (gameState.players.length === 0) return;
-
-    if (current && playerIds.includes(current.id)) {
-      // It was their turn: hand it to whoever came after them
-      const next = gameState.players[currentIndex % gameState.players.length];
-      gameState.players.forEach((p) => (p.isCurrentTurn = p === next));
-      next.steps = 0;
-      gameState.phase = "roll";
-      gameState.lastRoll = 0;
-      gameState.question = null;
-      closeQuestionPopup();
-      commit();
-      playSound("changePlayer");
-      openDiceForCurrentPlayer();
-    } else {
-      commit();
-    }
-  };
-
   // Initial UI render (the animation loop keeps the maze redrawn, including once images load)
   updateUI();
   drawGame();
@@ -627,6 +602,5 @@ export function renderGamePlayScreen(
       closeQuestionPopup();
     },
     applyRemote,
-    removePlayers,
   };
 }

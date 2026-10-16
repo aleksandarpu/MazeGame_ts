@@ -3,7 +3,7 @@ import { renderLobbyScreen, LobbyRoom } from "./lobby-screen";
 import { renderGameRoomScreen } from "./game-room-screen";
 import { GameScreen, renderGamePlayScreen } from "./game";
 import { GameState, syncedPart } from "./GameState";
-import { gameStateFromDoc, saveGame, syncedFromDoc, watchGame } from "./games";
+import { gameStateFromDoc, removeGamePlayers, saveGame, syncedFromDoc, watchGame } from "./games";
 import { showResultPopup } from "./answer-pop-up";
 import { showVictoryPopup as renderVictoryPopup } from "./victory-pop-up";
 import { t } from "./i18n";
@@ -192,14 +192,17 @@ function navigateToGamePlay(roomId: string, gameId: string) {
   };
 
   // Players who left the room (closed tab, removed by the cleanup) leave the game too.
-  // One client does it: the first real player still in the room.
+  // One client asks for it: the first real player still in the room. The server applies
+  // it and sends the new game to everyone, this client included.
   const dropPlayersWhoLeft = () => {
     if (!gameState || !screen || !roomMembers || gameState.phase === "finished") return;
     const members = roomMembers;
     const gone = gameState.players.filter((p) => !p.isMock && !members[p.id]).map((p) => p.id);
     if (gone.length === 0) return;
     const keeper = gameState.players.find((p) => !p.isMock && members[p.id]);
-    if (keeper?.id === userId) screen.removePlayers(gone);
+    if (keeper?.id === userId) {
+      removeGamePlayers(roomId, gameId, gone).catch((error) => console.error("Could not remove players", error));
+    }
   };
 
   const stopGame = watchGame(roomId, (game) => {

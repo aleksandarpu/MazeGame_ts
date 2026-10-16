@@ -155,6 +155,10 @@ async function main() {
         // Not back to the sender: its state may already be ahead of this save
         await sendTopic(`game:${roomId}`, subscribers(`game:${roomId}`, socket));
         return undefined;
+      case "removePlayers":
+        // To everyone, the sender included: the keeper takes the result from here too
+        await broadcast(await store.removeGamePlayers(userId, roomId, msg.gameId, msg.playerIds));
+        return undefined;
       default:
         throw new RequestError("badRequest");
     }
