@@ -85,6 +85,10 @@ async function main() {
     for (const roomId of changes.games) await sendTopic(`game:${roomId}`, subscribers(`game:${roomId}`));
   };
 
+  // The change is already saved: a failure to tell the subscribers must not look like a failed request
+  const notify = (changes: Changes) =>
+    broadcast(changes).catch((error) => console.error("Could not notify subscribers", error));
+
   const bindUser = (socket: WebSocket, session: Session, userId: string) => {
     session.userId = userId;
     const previous = socketOfUser.get(userId);
@@ -137,28 +141,30 @@ async function main() {
 
     switch (msg.type) {
       case "createRoom": {
-        const created = await store.createRoom(userId, cleanName(msg.name));
-        await broadcast(created.changes);
+        const created = await store.createRoom(userId, cleanName(msg.name), msg.requestId);
+        await notify(created.changes);
         return { roomId: created.roomId };
       }
       case "joinRoom":
-        await broadcast(await store.joinRoom(userId, roomId));
+        await notify(await store.joinRoom(userId, roomId));
         return undefined;
       case "leaveRoom":
-        await broadcast(await store.leaveRoom(userId, roomId));
+        await notify(await store.leaveRoom(userId, roomId));
         return undefined;
       case "setStatus":
-        await broadcast(await store.setStatus(userId, roomId, msg.status));
+        await notify(await store.setStatus(userId, roomId, msg.status));
         return undefined;
       case "saveGame": {
         const version = await store.saveGame(userId, roomId, msg.gameId, msg.state);
         // Not back to the sender: it gets its version in the reply instead
-        await sendTopic(`game:${roomId}`, subscribers(`game:${roomId}`, socket));
+        await sendTopic(`game:${roomId}`, subscribers(`game:${roomId}`, socket)).catch((error) =>
+          console.error("Could not notify subscribers", error)
+        );
         return { version };
       }
       case "removePlayers":
         // To everyone, the sender included: the keeper takes the result from here too
-        await broadcast(await store.removeGamePlayers(userId, roomId, msg.gameId, msg.playerIds));
+        await notify(await store.removeGamePlayers(userId, roomId, msg.gameId, msg.playerIds));
         return undefined;
       default:
         throw new RequestError("badRequest");

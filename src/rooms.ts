@@ -32,7 +32,9 @@ export function watchRoom(roomId: string, onChange: (room: Room | null) => void)
 
 /** Creates the room with the user in it and returns its id. Leaves any other room. */
 export async function createRoom(name: string): Promise<string> {
-  const { roomId } = await request({ type: "createRoom", name });
+  // One id per attempt of this call: a resend after a lost reply gets the same room back (server: store.createRoom)
+  const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const { roomId } = await request({ type: "createRoom", name, requestId });
   return roomId;
 }
 

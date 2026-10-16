@@ -22,8 +22,9 @@ type Handler = (message: ServerMessage) => void;
 
 const RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000];
 // Room actions that do nothing when repeated (joining a room you are in, leaving one you left,
-// setting the same status again), so they can be sent again when their reply was lost
-const REPEATABLE = new Set<ClientRequest["type"]>(["joinRoom", "leaveRoom", "setStatus"]);
+// setting the same status again, creating with the same request id), so they can be sent again
+// when their reply was lost
+const REPEATABLE = new Set<ClientRequest["type"]>(["createRoom", "joinRoom", "leaveRoom", "setStatus"]);
 
 let socket: WebSocket | null = null;
 let ready = false; // Connected and logged in (or not logged in yet at all)

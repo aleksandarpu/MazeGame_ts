@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createClient, Client, InStatement, Transaction } from "@libsql/client";
 
 // Thin wrapper around the libSQL client, plus the schema. In production the database
@@ -60,17 +61,50 @@ const schema = `
   );
 `;
 
-export async function openDb(url: string, authToken?: string): Promise<Db> {
-  const client: Client = createClient({ url, authToken });
-  await client.executeMultiple(schema);
+// A database call that doesn't answer in time has failed. Without a limit, one stuck call would
+// hold up every request behind it, since the server runs them one at a time (serialize in index.ts).
+const CALL_TIMEOUT_MS = Number(process.env.DB_TIMEOUT_MS ?? 10000);
 
-  // The open transaction, if any. The server runs one operation at a time
-  // (serialize in index.ts), so there is never more than one.
-  let tx: Transaction | null = null;
+/** The transaction a call belongs to: its connection, and whether it was given up after a timeout. */
+type TxContext = { tx: Transaction; owner: Client; abandoned: boolean };
+// Carried along the transaction's own async chain, so work left behind by a timeout can't run on
+// the next connection
+const txContext = new AsyncLocalStorage<TxContext>();
+
+/** Rejects if the promise hasn't settled within CALL_TIMEOUT_MS; then `onTimeout` runs. */
+function withDeadline<T>(promise: Promise<T>, onTimeout: () => void): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      onTimeout();
+      reject(new Error(`database did not answer within ${CALL_TIMEOUT_MS} ms`));
+    }, CALL_TIMEOUT_MS);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+export async function openDb(url: string, authToken?: string): Promise<Db> {
+  let client: Client = createClient({ url, authToken });
+  // A connection that stopped answering is dropped (its waiting calls fail) and replaced.
+  // Only the first report for a connection counts: later ones are about the old connection.
+  const replace = (broken: Client) => () => {
+    if (client !== broken) return;
+    try {
+      broken.close();
+    } catch {}
+    client = createClient({ url, authToken });
+  };
+  await withDeadline(client.executeMultiple(schema), replace(client));
 
   const execute = async (sql: string, params: unknown[] = []) => {
+    const ctx = txContext.getStore();
+    if (ctx?.abandoned) throw new Error("transaction given up after a timeout");
     const statement = { sql, args: params } as InStatement;
-    const result = await (tx ?? client).execute(statement);
+    const connection = ctx ? ctx.tx : client;
+    const result = await withDeadline(connection.execute(statement), () => {
+      if (ctx) ctx.abandoned = true;
+      replace(ctx ? ctx.owner : client)();
+    });
     // Plain objects keyed by column name
     return result.rows.map((row) => Object.fromEntries(result.columns.map((column, i) => [column, row[i]])));
   };
@@ -82,19 +116,27 @@ export async function openDb(url: string, authToken?: string): Promise<Db> {
     get: async <T>(sql: string, params?: unknown[]) => (await execute(sql, params))[0] as T | undefined,
     all: async <T>(sql: string, params?: unknown[]) => (await execute(sql, params)) as T[],
     async transaction(work) {
-      if (tx) return work(); // Already inside one
-      tx = await client.transaction("write");
-      try {
-        const result = await work();
-        await tx.commit();
-        return result;
-      } catch (error) {
-        await tx.rollback().catch(() => {});
-        throw error;
-      } finally {
-        tx.close();
-        tx = null;
-      }
+      if (txContext.getStore()) return work(); // Already inside one
+      const owner = client;
+      const tx = await withDeadline(owner.transaction("write"), replace(owner));
+      const ctx: TxContext = { tx, owner, abandoned: false };
+      return txContext.run(ctx, async () => {
+        try {
+          const result = await work();
+          await withDeadline(tx.commit(), () => {
+            ctx.abandoned = true;
+            replace(owner)();
+          });
+          return result;
+        } catch (error) {
+          await withDeadline(tx.rollback(), replace(owner)).catch(() => {});
+          throw error;
+        } finally {
+          try {
+            tx.close();
+          } catch {}
+        }
+      });
     },
     close: () => client.close(),
   };

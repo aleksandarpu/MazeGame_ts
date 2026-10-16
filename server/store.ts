@@ -25,6 +25,9 @@ export function noChanges(): Changes {
 
 export const newId = (bytes = 10) => randomBytes(bytes).toString("hex");
 
+// How long a create request id is remembered (a retry comes within seconds)
+const CREATE_MEMORY_MS = 10 * 60 * 1000;
+
 // ==========================================
 // MOCK ROOMS
 // ==========================================
@@ -178,8 +181,26 @@ export class Store {
   // ROOM ACTIONS
   // ==========================================
 
-  async createRoom(userId: string, roomName: string): Promise<{ roomId: string; changes: Changes }> {
-    return this.db.transaction(async () => {
+  /**
+   * Creates a room for the user. The client sends a request id with each attempt: if the reply
+   * was lost and the attempt is sent again, the room made by the first one is returned (while the
+   * user is still in it), so one click never makes two rooms.
+   */
+  async createRoom(userId: string, roomName: string, requestId: string): Promise<{ roomId: string; changes: Changes }> {
+    if (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 64) {
+      throw new RequestError("badRequest");
+    }
+    const key = `${userId}:${requestId}`;
+    const now = Date.now();
+    for (const [old, made] of this.createdByRequest) {
+      if (now - made.at > CREATE_MEMORY_MS) this.createdByRequest.delete(old);
+    }
+    const earlier = this.createdByRequest.get(key);
+    if (earlier && (await this.getRoom(earlier.roomId))?.players[userId]) {
+      return { roomId: earlier.roomId, changes: noChanges() };
+    }
+
+    const result = await this.db.transaction(async () => {
       const changes = await this.leaveAllRooms(userId);
       const roomId = newId();
       await this.db.run(
@@ -190,7 +211,12 @@ export class Store {
       changes.rooms.add(roomId);
       return { roomId, changes };
     });
+    this.createdByRequest.set(key, { roomId: result.roomId, at: now });
+    return result;
   }
+
+  // Rooms created by a request id, kept for a while so a repeated create gets the same room
+  private createdByRequest = new Map<string, { roomId: string; at: number }>();
 
   async joinRoom(userId: string, roomId: string): Promise<Changes> {
     return this.db.transaction(async () => {

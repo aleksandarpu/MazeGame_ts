@@ -40,7 +40,7 @@ export type ErrorCode = "notFound" | "started" | "full" | "badRequest" | "notAll
 export type ClientRequest =
   | { type: "hello"; name: string } // Log in as a new user
   | { type: "resume"; userId: string; token: string } // Reconnect as the same user after a dropped connection
-  | { type: "createRoom"; name: string }
+  | { type: "createRoom"; name: string; requestId: string } // A repeated request id gets the same room back
   | { type: "joinRoom"; roomId: string }
   | { type: "leaveRoom"; roomId: string }
   | { type: "setStatus"; roomId: string; status: MemberStatus }
