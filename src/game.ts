@@ -17,11 +17,22 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
-/** Player's sprite as an <img>, or a color dot if there is no sprite */
+/** Player's sprite as an <img>, or a color dot if there is no sprite (its color: paintColorDots) */
 function playerIconHtml(player: Player): string {
   const url = getPlayerImageUrl(player.spriteId);
-  if (!url) return `<span class="gs-dot" style="background-color: ${player.color};"></span>`;
+  if (!url) return `<span class="gs-dot" data-player-id="${escapeHtml(player.id)}"></span>`;
   return `<img src="${url}" alt="">`;
+}
+
+/**
+ * Sets the color dots' colors after their HTML is rendered. The color comes from the saved
+ * game, so it is set as a style value, never written into HTML.
+ */
+function paintColorDots(root: HTMLElement, players: Player[]) {
+  const colors = new Map(players.map((player) => [player.id, player.color]));
+  root.querySelectorAll<HTMLElement>(".gs-dot").forEach((dot) => {
+    dot.style.backgroundColor = colors.get(dot.dataset.playerId ?? "") ?? "";
+  });
 }
 
 // Layout shared by all themes. Desktop: scoreboard next to the maze, same height.
@@ -367,6 +378,8 @@ export function renderGamePlayScreen(
       });
     });
 
+    paintColorDots(scoreboardBox, gameState.players);
+
     // Render Current Player Box
     const currentPlayer = gameState.players.find((p) => p.isCurrentTurn);
     if (currentPlayer) {
@@ -386,6 +399,7 @@ export function renderGamePlayScreen(
           <span class="gs-big">${currentPlayer.score}</span>
         </div>
       `;
+      paintColorDots(currentPlayerBox, gameState.players);
     }
   };
 

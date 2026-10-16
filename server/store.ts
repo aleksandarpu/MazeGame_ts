@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Db } from "./db";
-import { buildNewGame } from "../src/game_setup";
+import { buildNewGame, PLAYER_COLORS, SPRITE_COUNT } from "../src/game_setup";
 import type { SyncedGameState } from "../src/GameState";
 import {
   ErrorCode, GameDoc, MAX_NAME_LENGTH, MAX_PLAYERS_PER_ROOM, MemberStatus, Room, RoomMember,
@@ -131,6 +131,14 @@ export class Store {
     const row = await this.db.get<{ name: string }>("SELECT name FROM users WHERE id = ?", [userId]);
     if (!row) throw new RequestError("notLoggedIn");
     return row.name;
+  }
+
+  /** True if the user is a real player in the room. */
+  async isInRoom(userId: string, roomId: string): Promise<boolean> {
+    const row = await this.db.get<{ user_id: string }>(
+      "SELECT user_id FROM room_players WHERE room_id = ? AND user_id = ? AND is_mock = 0", [roomId, userId]
+    );
+    return !!row;
   }
 
   /** Rooms that list the user as a player. */
@@ -359,7 +367,8 @@ function isSyncedState(value: any): value is SyncedGameState {
     value.players.every((p: any) =>
       p && typeof p.id === "string" && typeof p.name === "string" &&
       Number.isInteger(p.x) && Number.isInteger(p.y) &&
-      typeof p.score === "number" && typeof p.steps === "number" && typeof p.isCurrentTurn === "boolean") &&
+      typeof p.score === "number" && typeof p.steps === "number" && typeof p.isCurrentTurn === "boolean" &&
+      PLAYER_COLORS.includes(p.color) && Number.isInteger(p.spriteId) && p.spriteId >= 1 && p.spriteId <= SPRITE_COUNT) &&
     phases.has(value.phase) &&
     typeof value.rollCount === "number" && typeof value.lastRoll === "number" &&
     typeof value.answerCount === "number" && typeof value.lastAnswerCorrect === "boolean" &&

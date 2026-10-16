@@ -109,10 +109,16 @@ async function main() {
       return { userId: msg.userId, token: msg.token };
     }
     if (msg.type === "subscribe" || msg.type === "unsubscribe") {
+      const userId = session.userId;
+      if (!userId) throw new RequestError("notLoggedIn");
       if (!isTopic(msg.topic)) throw new RequestError("badRequest");
       if (msg.type === "unsubscribe") {
         session.topics.delete(msg.topic);
       } else {
+        // A game is only for the players in its room
+        if (msg.topic.startsWith("game:") && !(await store.isInRoom(userId, msg.topic.slice(5)))) {
+          throw new RequestError("notAllowed");
+        }
         session.topics.add(msg.topic);
         await sendTopic(msg.topic, [socket]); // The current value
       }
@@ -123,6 +129,11 @@ async function main() {
     if (!userId) throw new RequestError("notLoggedIn");
     const roomId = "roomId" in msg ? msg.roomId : "";
     if ("roomId" in msg && typeof roomId !== "string") throw new RequestError("badRequest");
+
+    // Changing rooms ends the game subscriptions: the player is no longer in the old room's game
+    if (msg.type === "createRoom" || msg.type === "joinRoom" || msg.type === "leaveRoom") {
+      for (const topic of session.topics) if (topic.startsWith("game:")) session.topics.delete(topic);
+    }
 
     switch (msg.type) {
       case "createRoom": {
