@@ -315,6 +315,12 @@ export class Store {
 
       // Each stored player, with the controller's version of it
       const players = game.players.map((stored) => state.players.find((p) => p.id === stored.id) ?? stored);
+      // The controller's copy can be older than a removal made meanwhile. If its turn now points
+      // at a player who is gone (or at nobody), refuse it: the controller reloads the game.
+      const holders = players.filter((p) => p.isCurrentTurn);
+      if (holders.length !== 1 || (state.winnerId !== null && !players.some((p) => p.id === state.winnerId))) {
+        throw new RequestError("conflict");
+      }
       await this.db.run("UPDATE games SET state = ? WHERE room_id = ?", [JSON.stringify({ ...state, players }), roomId]);
     });
   }

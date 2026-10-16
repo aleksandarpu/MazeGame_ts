@@ -3,7 +3,7 @@ import { renderLobbyScreen, LobbyRoom } from "./lobby-screen";
 import { renderGameRoomScreen } from "./game-room-screen";
 import { GameScreen, renderGamePlayScreen } from "./game";
 import { GameState, syncedPart } from "./GameState";
-import { gameStateFromDoc, removeGamePlayers, saveGame, syncedFromDoc, watchGame } from "./games";
+import { gameStateFromDoc, refreshGame, removeGamePlayers, saveGame, syncedFromDoc, watchGame } from "./games";
 import { showResultPopup } from "./answer-pop-up";
 import { showVictoryPopup as renderVictoryPopup } from "./victory-pop-up";
 import { t } from "./i18n";
@@ -180,7 +180,10 @@ function navigateToGamePlay(roomId: string, gameId: string) {
       .catch((error) => {
         // Lost with the connection: save the latest state again once reconnected
         if (!(error instanceof ServerError)) publish();
-        else console.error("Game: could not save", error);
+        else if (error.code === "conflict") {
+          // Our copy was behind a removal: take the stored game instead
+          refreshGame(roomId).catch((refreshError) => console.error("Game: could not reload", refreshError));
+        } else console.error("Game: could not save", error);
       })
       .finally(() => savesInFlight--);
   };

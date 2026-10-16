@@ -43,6 +43,11 @@ export async function saveGame(roomId: string, gameId: string, state: SyncedGame
   await request({ type: "saveGame", roomId, gameId, state });
 }
 
+/** Asks the server for the stored game again; it answers on the watch of watchGame. */
+export async function refreshGame(roomId: string): Promise<void> {
+  await request({ type: "subscribe", topic: `game:${roomId}` });
+}
+
 /** Asks the server to drop players who left the room from the game (the server decides the rest). */
 export async function removeGamePlayers(roomId: string, gameId: string, playerIds: string[]): Promise<void> {
   await request({ type: "removePlayers", roomId, gameId, playerIds });
