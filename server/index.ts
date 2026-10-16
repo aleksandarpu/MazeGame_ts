@@ -150,11 +150,12 @@ async function main() {
       case "setStatus":
         await broadcast(await store.setStatus(userId, roomId, msg.status));
         return undefined;
-      case "saveGame":
-        await store.saveGame(userId, roomId, msg.gameId, msg.state);
-        // Not back to the sender: its state may already be ahead of this save
+      case "saveGame": {
+        const version = await store.saveGame(userId, roomId, msg.gameId, msg.state);
+        // Not back to the sender: it gets its version in the reply instead
         await sendTopic(`game:${roomId}`, subscribers(`game:${roomId}`, socket));
-        return undefined;
+        return { version };
+      }
       case "removePlayers":
         // To everyone, the sender included: the keeper takes the result from here too
         await broadcast(await store.removeGamePlayers(userId, roomId, msg.gameId, msg.playerIds));

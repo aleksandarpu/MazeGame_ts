@@ -40,5 +40,6 @@ export function buildNewGame(gameId: string, members: { id: string; name: string
     lastAnswerText: null,
     question: null,
     winnerId: null,
+    version: 0,
   };
 }

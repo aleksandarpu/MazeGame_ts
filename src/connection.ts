@@ -13,10 +13,17 @@ export class ServerError extends Error {
   }
 }
 
-type Pending = { resolve: (data: any) => void; reject: (error: Error) => void };
+type Pending = {
+  resolve: (data: any) => void;
+  reject: (error: Error) => void;
+  request?: ClientRequest; // Kept so a room action can be sent again after a lost connection
+};
 type Handler = (message: ServerMessage) => void;
 
 const RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 4000];
+// Room actions that do nothing when repeated (joining a room you are in, leaving one you left,
+// setting the same status again), so they can be sent again when their reply was lost
+const REPEATABLE = new Set<ClientRequest["type"]>(["joinRoom", "leaveRoom", "setStatus"]);
 
 let socket: WebSocket | null = null;
 let ready = false; // Connected and logged in (or not logged in yet at all)
@@ -92,9 +99,14 @@ function connect() {
     ready = false;
     // Queued requests were never sent: drop them, so they can't run after the reconnect
     outbox.length = 0;
-    // Requests that were sent may or may not have been applied; let the callers know
-    for (const [id, request] of pending) {
-      request.reject(new Error("Connection lost"));
+    // Requests that were sent may or may not have been applied. A repeatable room action is sent
+    // again after the reconnect (its reply is still awaited); the others fail, and the caller decides.
+    for (const [id, entry] of pending) {
+      if (entry.request && REPEATABLE.has(entry.request.type)) {
+        outbox.push({ id, request: entry.request });
+        continue;
+      }
+      entry.reject(new Error("Connection lost"));
       pending.delete(id);
     }
     if (event.code === 4000) return; // Replaced by a newer connection of the same user
@@ -117,7 +129,7 @@ export function request<K extends ClientRequest["type"]>(
   if (!socket) connect();
   const id = nextId++;
   return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+    pending.set(id, { resolve, reject, request: req });
     if (ready && socket?.readyState === WebSocket.OPEN) transmit(id, req);
     else outbox.push({ id, request: req });
   });

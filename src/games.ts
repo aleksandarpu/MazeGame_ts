@@ -39,8 +39,9 @@ export function watchGame(roomId: string, onChange: (game: GameDoc | null) => vo
 }
 
 /** Saves the changing part of the game. */
-export async function saveGame(roomId: string, gameId: string, state: SyncedGameState): Promise<void> {
-  await request({ type: "saveGame", roomId, gameId, state });
+export async function saveGame(roomId: string, gameId: string, state: SyncedGameState): Promise<number> {
+  const { version } = await request({ type: "saveGame", roomId, gameId, state });
+  return version;
 }
 
 /** Asks the server for the stored game again; it answers on the watch of watchGame. */

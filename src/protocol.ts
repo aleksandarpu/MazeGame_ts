@@ -30,6 +30,7 @@ export type GameDoc = SyncedGameState & {
   gameId: string; // Same id as the room's gameId
   width: number;
   maze: string; // Cell[][] as JSON
+  version: number; // Counts the changes to the game (set by the server); the newest copy has the highest
 };
 
 /** Error codes a request can fail with; the client shows t(`room.error.<code>`) for the room ones. */
@@ -57,6 +58,7 @@ export type ReplyData = {
   hello: { userId: string; token: string };
   resume: { userId: string; token: string };
   createRoom: { roomId: string };
+  saveGame: { version: number }; // The game's version after the save
 };
 
 // Server -> client

@@ -4,6 +4,7 @@ import { renderGameRoomScreen } from "./game-room-screen";
 import { GameScreen, renderGamePlayScreen } from "./game";
 import { GameState, syncedPart } from "./GameState";
 import { gameStateFromDoc, refreshGame, removeGamePlayers, saveGame, syncedFromDoc, watchGame } from "./games";
+import type { GameDoc } from "./games";
 import { showResultPopup } from "./answer-pop-up";
 import { showVictoryPopup as renderVictoryPopup } from "./victory-pop-up";
 import { t } from "./i18n";
@@ -173,10 +174,18 @@ function navigateToGamePlay(roomId: string, gameId: string) {
   let roomMembers: Record<string, RoomMember> | null = null;
 
   let savesInFlight = 0;
+  // Version of the newest copy of the game we have: our last save, or the last server copy taken
+  let appliedVersion = -1;
+  // A server copy that came in while our saves were on the way; taken once they are done
+  let waitingGame: GameDoc | null = null;
+
   const publish = () => {
     if (!gameState) return;
     savesInFlight++;
     saveGame(roomId, gameId, syncedPart(gameState))
+      .then((version) => {
+        appliedVersion = Math.max(appliedVersion, version);
+      })
       .catch((error) => {
         // Lost with the connection: save the latest state again once reconnected
         if (!(error instanceof ServerError)) publish();
@@ -185,7 +194,14 @@ function navigateToGamePlay(roomId: string, gameId: string) {
           refreshGame(roomId).catch((refreshError) => console.error("Game: could not reload", refreshError));
         } else console.error("Game: could not save", error);
       })
-      .finally(() => savesInFlight--);
+      .finally(() => {
+        savesInFlight--;
+        if (savesInFlight === 0 && waitingGame) {
+          const game = waitingGame;
+          waitingGame = null;
+          takeGame(game);
+        }
+      });
   };
 
   const showVictoryPopup = () => {
@@ -208,11 +224,10 @@ function navigateToGamePlay(roomId: string, gameId: string) {
     }
   };
 
-  const stopGame = watchGame(roomId, (game) => {
-    if (!game || game.gameId !== gameId) return; // Deleted, or a later game of this room
-    // While our saves are on the way, the server's copy is behind ours
-    // (e.g. the current value it sends again after a reconnect)
-    if (savesInFlight > 0 && gameState) return;
+  // Shows a server copy of the game, unless we already have that version or a newer one
+  const takeGame = (game: GameDoc) => {
+    if (game.version <= appliedVersion) return;
+    appliedVersion = game.version;
     if (!gameState) {
       gameState = gameStateFromDoc(game);
       screen = renderGamePlayScreen(appContainer, gameState, {
@@ -225,6 +240,18 @@ function navigateToGamePlay(roomId: string, gameId: string) {
     } else {
       screen?.applyRemote(syncedFromDoc(game));
     }
+  };
+
+  const stopGame = watchGame(roomId, (game) => {
+    if (!game || game.gameId !== gameId) return; // Deleted, or a later game of this room
+    if (game.version <= appliedVersion) return; // Our own save, or older than it
+    // While our saves are on the way, the server's copy may be behind them (e.g. the current value
+    // it sends after a reconnect): keep the newest one and take it once they are done
+    if (savesInFlight > 0 && gameState) {
+      waitingGame = game;
+      return;
+    }
+    takeGame(game);
   });
 
   const stopRoom = watchRoom(roomId, (room) => {

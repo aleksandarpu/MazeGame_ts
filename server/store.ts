@@ -170,7 +170,8 @@ export class Store {
     const row = await this.db.get<GameRow>("SELECT * FROM games WHERE room_id = ?", [roomId]);
     if (!row) return null;
     // The columns are the game's details; they come last so nothing in the state can replace them
-    return { ...(JSON.parse(row.state) as SyncedGameState), gameId: row.game_id, width: row.width, maze: row.maze };
+    const stored = JSON.parse(row.state) as SyncedGameState & { version?: number };
+    return { ...stored, gameId: row.game_id, width: row.width, maze: row.maze, version: stored.version ?? 0 };
   }
 
   // ==========================================
@@ -300,9 +301,9 @@ export class Store {
    * The player list is not changed here: the server keeps its own, so a save made from an
    * older copy can't bring back a removed player (removeGamePlayers does the removals).
    */
-  async saveGame(userId: string, roomId: string, gameId: string, state: SyncedGameState): Promise<void> {
+  async saveGame(userId: string, roomId: string, gameId: string, state: SyncedGameState): Promise<number> {
     if (!isSyncedState(state)) throw new RequestError("badRequest");
-    await this.db.transaction(async () => {
+    return this.db.transaction(async () => {
       const room = await this.getRoom(roomId);
       const game = await this.getGame(roomId);
       if (!room || !game || room.gameId !== gameId || game.gameId !== gameId) throw new RequestError("notFound");
@@ -325,7 +326,10 @@ export class Store {
       if (holders.length !== 1 || (state.winnerId !== null && !players.some((p) => p.id === state.winnerId))) {
         throw new RequestError("conflict");
       }
-      await this.db.run("UPDATE games SET state = ? WHERE room_id = ?", [JSON.stringify({ ...state, players }), roomId]);
+      // The version counts the changes to the game; clients use it to tell newer copies from older ones
+      const version = game.version + 1;
+      await this.db.run("UPDATE games SET state = ? WHERE room_id = ?", [JSON.stringify({ ...state, players, version }), roomId]);
+      return version;
     });
   }
 
@@ -351,7 +355,8 @@ export class Store {
         game.players.filter((p) => !p.isMock && !room.players[p.id] && playerIds.includes(p.id)).map((p) => p.id)
       );
       if (gone.size === 0) return;
-      await this.db.run("UPDATE games SET state = ? WHERE room_id = ?", [JSON.stringify(withoutPlayers(game, gone)), roomId]);
+      const version = game.version + 1;
+      await this.db.run("UPDATE games SET state = ? WHERE room_id = ?", [JSON.stringify({ ...withoutPlayers(game, gone), version }), roomId]);
       changes.games.add(roomId);
     });
     return changes;
