@@ -313,6 +313,10 @@ export class Store {
       const controller = current?.isMock ? firstReal : current?.id;
       if (userId !== controller) throw new RequestError("notAllowed");
 
+      // Every player still in the game must be in the save (only removeGamePlayers takes players out)
+      if (!game.players.every((stored) => state.players.some((p) => p.id === stored.id))) {
+        throw new RequestError("badRequest");
+      }
       // Each stored player, with the controller's version of it
       const players = game.players.map((stored) => state.players.find((p) => p.id === stored.id) ?? stored);
       // The controller's copy can be older than a removal made meanwhile. If its turn now points
